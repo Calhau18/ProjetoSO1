@@ -111,7 +111,9 @@ int inode_create(inode_type n_type) {
                 }
 
                 inode_table[inumber].i_size = BLOCK_SIZE;
-                inode_table[inumber].i_data_block = b;
+				memset(inode->i_direct_data_blocks, -1, 10*sizeof(int));
+				inode_table[inumber].i_direct_data_blocks[0] = b;
+				inode_table[inumber].i_block_index_reference = -1;
 
                 dir_entry_t *dir_entry = (dir_entry_t *)data_block_get(b);
                 if (dir_entry == NULL) {
@@ -125,12 +127,42 @@ int inode_create(inode_type n_type) {
             } else {
                 /* In case of a new file, simply sets its size to 0 */
                 inode_table[inumber].i_size = 0;
-                inode_table[inumber].i_data_block = -1;
+				memset(inode->i_direct_data_blocks, -1, 10*sizeof(int));
+				inode_table[inumber].i_block_index_reference = -1;
             }
             return inumber;
         }
     }
     return -1;
+}
+
+/*
+ * Deletes the content of the i-node (frees the data blocks)
+ * Input:
+ *  - inumber: i-node's number
+ * Returns: 0 if successful, -1 if failed
+ */
+int inode_delete_content(int inumber){
+	inode_t inode = inode_table[inumber];
+	// CHECK: can we assume blocks are full?
+	int i_block_number = i_size / BLOCK_SIZE;
+    if (inode.i_size > 0) {
+		for(int i=0; i<i_block_number && i<10; i++){
+			if(data_block_free(inode.i_direct_data_blocks[i]) == -1){
+				return -1;
+			}
+		}
+    }
+	if(inode.i_block_index_reference != -1){
+		for(int i=0; i<i_block_number-10; i++){
+			if(data_block_free(
+				fsdata[i_block_index_reference * BLOCK_SIZE + i]) == -1){
+				return -1;
+			}
+		}
+		data_block_free(i_block_index_reference);
+	}
+	return 0;
 }
 
 /*
@@ -149,12 +181,9 @@ int inode_delete(int inumber) {
     }
 
     freeinode_ts[inumber] = FREE;
-
-    if (inode_table[inumber].i_size > 0) {
-        if (data_block_free(inode_table[inumber].i_data_block) == -1) {
-            return -1;
-        }
-    }
+	if(inode_delete_content(inumber) == -1){
+		return -1;
+	}
 
     return 0;
 }

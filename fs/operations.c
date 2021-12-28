@@ -57,10 +57,12 @@ int tfs_open(char const *name, int flags) {
         /* Trucate (if requested) */
         if (flags & TFS_O_TRUNC) {
             if (inode->i_size > 0) {
-                if (data_block_free(inode->i_data_block) == -1) {
-                    return -1;
-                }
+				if(inode_delete_content(inum) == -1){
+					return -1;
+				}
                 inode->i_size = 0;
+				memset(inode->i_direct_data_blocks, -1, 10*sizeof(int));
+				inode->i_block_index_reference = -1;
             }
         }
         /* Determine initial offset */
