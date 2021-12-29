@@ -107,35 +107,31 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
 
     /* From the open file table entry, we get the inode */
     inode_t *inode = inode_get(file->of_inumber);
-    if (inode == NULL) {
-        return -1;
-    }
+    if (inode == NULL) {return -1;}
 
-    /* Determine how many bytes to write */
-    if (to_write + file->of_offset > BLOCK_SIZE) {
-        to_write = BLOCK_SIZE - file->of_offset;
-    }
-
-    if (to_write > 0) {
-        if (inode->i_size == 0) {
-            /* If empty file, allocate new block */
-            inode->i_data_block = data_block_alloc();
+    size_t total_written = 0;
+    while (to_write > 0) {
+        size_t to_write_now;
+        if (file->of_offset % BLOCK_SIZE + to_write > BLOCK_SIZE) {
+            to_write_now = BLOCK_SIZE - (file->of_offset % BLOCK_SIZE);
+        } else {
+            to_write_now = to_write;
         }
+        int starting_block = (int) (file->of_offset / BLOCK_SIZE);
+		int block_number = get_nth_block(inode, starting_block);
+		if(block_number == -1) return -1;
+		void* block = data_block_get(block_number);
+		if(block == NULL) return -1;
 
-        void *block = data_block_get(inode->i_data_block);
-        if (block == NULL) {
-            return -1;
-        }
+        int position = file->of_offset % BLOCK_SIZE;
 
         /* Perform the actual write */
-        memcpy(block + file->of_offset, buffer, to_write);
+        memcpy(block + position, buffer, to_write_now);
 
-        /* The offset associated with the file handle is
-         * incremented accordingly */
-        file->of_offset += to_write;
-        if (file->of_offset > inode->i_size) {
-            inode->i_size = file->of_offset;
-        }
+        total_written += to_write_now;
+        to_write -= to_write_now;
+        buffer += to_write_now;
+        file->of_offset += to_write_now;
     }
 
     return (ssize_t)to_write;
@@ -211,6 +207,7 @@ int tfs_copy_to_external_fs(char const *source_path, char const *dest_path){
 	ssize_t total_read = tfs_read(fhandle, buffer, inode->i_size);
 	if(total_read == -1 || total_read < inode->i_size)
 		return -1;
+    tfs_close(fhandle);
 
 	FILE* fd = fopen(dest_path, "w");
 	if(fd == NULL)
@@ -219,6 +216,7 @@ int tfs_copy_to_external_fs(char const *source_path, char const *dest_path){
 	size_t total_written = fwrite(buffer, total_read, 1, fd);
 	if(total_written != total_read)
 		return -1;
+    fclose(fd);
 
 	return 0;
 }
