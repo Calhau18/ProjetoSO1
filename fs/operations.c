@@ -61,8 +61,7 @@ int tfs_open(char const *name, int flags) {
 					return -1;
 				}
                 inode->i_size = 0;
-				memset(inode->i_direct_data_blocks, -1, 10*sizeof(int));
-				inode->i_block_index_reference = -1;
+				memset(inode->i_data_blocks, -1, 11*sizeof(int));
             }
         }
         /* Determine initial offset */
@@ -142,6 +141,18 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
     return (ssize_t)to_write;
 }
 
+/*
+ * Return the index in the block table of the nth block (starting at 0) that 
+ * stores information relative to inode (on success). On failure returns -1.
+ */
+int get_nth_block(inode_t * inode, int n){
+	if(inode == NULL || n < 0 || n > inode->i_size / BLOCK_SIZE)
+		return -1;
+	if(n < 10)
+		return inode->i_data_blocks[n];
+	int* reference_block = (int*)data_block_get(inode->i_data_blocks[10]);
+	return *(reference_block + n - 10);
+}
 
 ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
     open_file_entry_t *file = get_open_file_entry(fhandle);
@@ -157,22 +168,28 @@ ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
 
     /* Determine how many bytes to read */
     size_t to_read = inode->i_size - file->of_offset;
-    if (to_read > len) {
-        to_read = len;
-    }
+	if(to_read > len) to_read = len;
+	
+	size_t total_read = 0;
+	while(to_read > 0){
+		int starting_block = (int) (file->of_offset / BLOCK_SIZE);
+		int block_number = get_nth_block(inode, starting_block);
+		if(block_number == -1) return -1;
+		void* block = data_block_get(block_number);
+		if(block == NULL) return -1;
 
-    if (to_read > 0) {
-        void *block = data_block_get(inode->i_data_block);
-        if (block == NULL) {
-            return -1;
-        }
+		int position = file->of_offset % BLOCK_SIZE;
 
-        /* Perform the actual read */
-        memcpy(buffer, block + file->of_offset, to_read);
-        /* The offset associated with the file handle is
-         * incremented accordingly */
-        file->of_offset += to_read;
-    }
+		size_t read_now = (size_t) (BLOCK_SIZE - position);
+		if(read_now > to_read) read_now = to_read;
+		
+		memcpy(buffer, block + position, read_now);
+		
+		buffer += read_now;
+		file->of_offset += read_now;
+		total_read += read_now;
+		to_read -= read_now;
+	}
 
-    return (ssize_t)to_read;
+    return (ssize_t)total_read;
 }

@@ -153,14 +153,14 @@ int inode_delete_content(int inumber){
 			}
 		}
     }
-	if(inode.i_block_index_reference != -1){
+	if(inode.i_data_blocks[10] != -1){
+		void * block = data_block_get(inode.i_data_blocks[10]);
 		for(int i=0; i<i_block_number-10; i++){
-			if(data_block_free(
-				fsdata[i_block_index_reference * BLOCK_SIZE + i]) == -1){
+			if(data_block_free(*(block+i)) == -1){
 				return -1;
 			}
 		}
-		data_block_free(i_block_index_reference);
+		data_block_free(inode.i_data_blocks[10]);
 	}
 	return 0;
 }
