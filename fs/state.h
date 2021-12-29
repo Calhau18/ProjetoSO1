@@ -23,9 +23,7 @@ typedef enum { T_FILE, T_DIRECTORY } inode_type;
 typedef struct {
     inode_type i_node_type;
     size_t i_size;
-	// substituir por array de tamanho 11
     int i_data_blocks[11];
-	int i_block_index_reference;
     /* in a real FS, more fields would exist here */
 } inode_t;
 

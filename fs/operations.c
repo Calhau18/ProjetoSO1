@@ -193,3 +193,32 @@ ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
 
     return (ssize_t)total_read;
 }
+
+int tfs_copy_to_external_fs(char const *source_path, char const *dest_path){
+	int fhandle = tfs_open(source_path, 0);
+	if(fhandle == -1)
+		return -1;
+
+    open_file_entry_t *file = get_open_file_entry(fhandle);
+    if(file == NULL)
+        return -1;
+
+    inode_t *inode = inode_get(file->of_inumber);
+    if(inode == NULL)
+        return -1;
+	
+	void* buffer[inode->i_size];
+	ssize_t total_read = tfs_read(fhandle, buffer, inode->i_size);
+	if(total_read == -1 || total_read < inode->i_size)
+		return -1;
+
+	FILE* fd = fopen(dest_path, "w");
+	if(fd == NULL)
+		return -1;
+
+	size_t total_written = fwrite(buffer, total_read, 1, fd);
+	if(total_written != total_read)
+		return -1;
+
+	return 0;
+}
