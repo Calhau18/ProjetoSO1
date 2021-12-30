@@ -21,7 +21,7 @@ TARGET_EXECS := tests/test1 tests/copy_to_external_simple tests/copy_to_external
 vpath # clears VPATH
 vpath %.h $(INCLUDE_DIRS)
 
-CFLAGS = -std=c11 -D_POSIX_C_SOURCE=200809L
+CFLAGS = -std=c11 -D_POSIX_C_SOURCE=200809L 
 CFLAGS += $(INCLUDES)
 
 # Warnings
@@ -40,6 +40,10 @@ ifeq ($(strip $(OPTIM)), no)
 else
   CFLAGS += -O3
 endif
+
+# pthread support
+CFLAGS += -pthread
+LDFLAGS = -pthread
 
 # A phony target is one that is not really the name of a file
 # https://www.gnu.org/software/make/manual/html_node/Phony-Targets.html

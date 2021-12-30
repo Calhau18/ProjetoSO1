@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/types.h>
+#include <pthread.h>
 
 /*
  * Directory entry
@@ -43,7 +44,7 @@ void state_init();
 void state_destroy();
 
 int inode_create(inode_type n_type);
-int inode_delete_content(int inumber);
+int inode_empty_content(int inumber);
 int inode_delete(int inumber);
 inode_t *inode_get(int inumber);
 

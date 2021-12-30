@@ -57,7 +57,7 @@ int tfs_open(char const *name, int flags) {
         /* Trucate (if requested) */
         if (flags & TFS_O_TRUNC) {
             if (inode->i_size > 0) {
-				if(inode_delete_content(inum) == -1){
+				if(inode_empty_content(inum) == -1){
 					return -1;
 				}
                 inode->i_size = 0;
