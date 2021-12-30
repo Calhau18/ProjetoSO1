@@ -99,6 +99,23 @@ int tfs_open(char const *name, int flags) {
 
 int tfs_close(int fhandle) { return remove_from_open_file_table(fhandle); }
 
+/*
+ * Returns:
+ * - the index of the nth block with data relative to the inode on success
+ * - -2 if the inode does not have that many blocks
+ * - -1 on failure
+ */
+int get_nth_block(inode_t * inode, int n){
+	if(inode == NULL || n < 0 || n >= 10 + BLOCK_SIZE / sizeof(int))
+		return -1;
+	if(n > inode->i_size / BLOCK_SIZE)
+		return -2;
+	if(n < 10)
+		return inode->i_data_blocks[n];
+	int* reference_block = (int*)data_block_get(inode->i_data_blocks[10]);
+	return *(reference_block + n - 10);
+}
+
 ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
     open_file_entry_t *file = get_open_file_entry(fhandle);
     if (file == NULL) {
@@ -111,41 +128,33 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
 
     size_t total_written = 0;
     while (to_write > 0) {
-        size_t to_write_now;
-        if (file->of_offset % BLOCK_SIZE + to_write > BLOCK_SIZE) {
-            to_write_now = BLOCK_SIZE - (file->of_offset % BLOCK_SIZE);
-        } else { to_write_now = to_write; }
         int starting_block = (int) (file->of_offset / BLOCK_SIZE);
 		int block_number = get_nth_block(inode, starting_block);
-		if(block_number == -1) return -1;
+		if(block_number == -2)
+			block_number = data_block_alloc();
+		if(block_number == -1)
+			return -1;
 		void* block = data_block_get(block_number);
 		if(block == NULL) return -1;
 
-        int position = file->of_offset % BLOCK_SIZE;
+        size_t position = file->of_offset % BLOCK_SIZE;
+
+        size_t write_now = BLOCK_SIZE - position;
+		if(write_now > to_write) write_now = to_write;
 
         /* Perform the actual write */
-        memcpy(block + position, buffer, to_write_now);
+        memcpy(block + position, buffer, write_now);
 
-        total_written += to_write_now;
-        to_write -= to_write_now;
-        buffer += to_write_now;
-        file->of_offset += to_write_now;
+        buffer += write_now;
+        file->of_offset += write_now;
+        total_written += write_now;
+        to_write -= write_now;
     }
 
-    return (ssize_t)total_written;
-}
+	if(file->of_offset > inode->i_size)
+		inode->i_size = file->of_offset;
 
-/*
- * Return the index in the block table of the nth block (starting at 0) that 
- * stores information relative to inode (on success). On failure returns -1.
- */
-int get_nth_block(inode_t * inode, int n){
-	if(inode == NULL || n < 0 || n > inode->i_size / BLOCK_SIZE)
-		return -1;
-	if(n < 10)
-		return inode->i_data_blocks[n];
-	int* reference_block = (int*)data_block_get(inode->i_data_blocks[10]);
-	return *(reference_block + n - 10);
+    return (ssize_t)total_written;
 }
 
 ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
@@ -194,16 +203,14 @@ int tfs_copy_to_external_fs(char const *source_path, char const *dest_path){
 		return -1;
 
     open_file_entry_t *file = get_open_file_entry(fhandle);
-    if(file == NULL)
-        return -1;
+    if(file == NULL) return -1;
 
     inode_t *inode = inode_get(file->of_inumber);
-    if(inode == NULL)
-        return -1;
+    if(inode == NULL) return -1;
 	
 	void* buffer[inode->i_size];
 	ssize_t total_read = tfs_read(fhandle, buffer, inode->i_size);
-	if(total_read == -1 || total_read < inode->i_size)
+	if(/*total_read == -1 ||*/ total_read < inode->i_size)
 		return -1;
     tfs_close(fhandle);
 
@@ -211,7 +218,7 @@ int tfs_copy_to_external_fs(char const *source_path, char const *dest_path){
 	if(fd == NULL)
 		return -1;
 
-	size_t total_written = fwrite(buffer, total_read, 1, fd);
+	size_t total_written = fwrite(buffer, (size_t)total_read, 1, fd);
 	if(total_written != total_read)
 		return -1;
     fclose(fd);

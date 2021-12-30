@@ -143,7 +143,7 @@ int inode_create(inode_type n_type) {
 int inode_delete_content(int inumber){
 	inode_t inode = inode_table[inumber];
 	// CHECK: can we assume blocks are full?
-	int i_block_number = inode.i_size / BLOCK_SIZE;
+	int i_block_number = (int) inode.i_size / BLOCK_SIZE;
     if (inode.i_size > 0) {
 		for(int i=0; i<i_block_number && i<10; i++){
 			if(data_block_free(inode.i_data_blocks[i]) == -1){
@@ -152,13 +152,15 @@ int inode_delete_content(int inumber){
 		}
     }
 	if(inode.i_data_blocks[10] != -1){
-		void * block = data_block_get(inode.i_data_blocks[10]);
+		int * block = (int*)data_block_get(inode.i_data_blocks[10]);
 		for(int i=0; i<i_block_number-10; i++){
-			if(data_block_free(*(int*)(block+i)) == -1){
+			if(data_block_free(*(block+i)) == -1){
 				return -1;
 			}
 		}
-		data_block_free(inode.i_data_blocks[10]);
+		if(data_block_free(inode.i_data_blocks[10]) == -1){
+			return -1;
+		}
 	}
 	return 0;
 }
