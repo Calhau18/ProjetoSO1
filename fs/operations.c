@@ -108,7 +108,7 @@ int tfs_close(int fhandle) { return remove_from_open_file_table(fhandle); }
 int get_nth_block(inode_t * inode, int n){
 	if(inode == NULL || n < 0 || n >= 10 + BLOCK_SIZE / sizeof(int))
 		return -1;
-	if(n > inode->i_size / BLOCK_SIZE)
+	if(inode->i_size == 0 || n > (inode->i_size - 1) / BLOCK_SIZE)
 		return -2;
 	if(n < 10)
 		return inode->i_data_blocks[n];
@@ -130,9 +130,26 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
     while (to_write > 0) {
         int starting_block = (int) (file->of_offset / BLOCK_SIZE);
 		int block_number = get_nth_block(inode, starting_block);
-		if(block_number == -2)
-			block_number = data_block_alloc();
-		if(block_number == -1)
+		// If there is no block number starting_block, create one
+		if(block_number == -2){
+			if(starting_block < 10){
+				block_number = data_block_alloc();
+				if(block_number == -1) return -1;
+				inode->i_data_blocks[starting_block] = block_number;
+			}else{
+				if(starting_block == 10){
+					int irreference_block_number = data_block_alloc();
+					if(irreference_block_number == -1) return -1;
+					inode->i_data_blocks[10] = irreference_block_number;
+				}
+				int* irreference_block = (int*) data_block_get(inode->i_data_blocks[10]);
+				if(irreference_block == NULL) return -1;
+				int* new_block_position = irreference_block + starting_block - 10;
+				block_number = data_block_alloc();
+				if(block_number == -1) return -1;
+				*(new_block_position) = block_number;
+			}
+		}if(block_number == -1)
 			return -1;
 		void* block = data_block_get(block_number);
 		if(block == NULL) return -1;
@@ -212,16 +229,18 @@ int tfs_copy_to_external_fs(char const *source_path, char const *dest_path){
 	ssize_t total_read = tfs_read(fhandle, buffer, inode->i_size);
 	if(/*total_read == -1 ||*/ total_read < inode->i_size)
 		return -1;
-    tfs_close(fhandle);
+    if(tfs_close(fhandle) == -1)
+		return -1;
 
 	FILE* fd = fopen(dest_path, "w");
 	if(fd == NULL)
 		return -1;
 
 	size_t total_written = fwrite(buffer, (size_t)total_read, 1, fd);
-	if(total_written != total_read)
+	if(total_written != 1)
 		return -1;
-    fclose(fd);
+    if(fclose(fd) == -1)
+		return -1;
 
 	return 0;
 }
