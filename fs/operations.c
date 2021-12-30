@@ -107,16 +107,14 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
 
     /* From the open file table entry, we get the inode */
     inode_t *inode = inode_get(file->of_inumber);
-    if (inode == NULL) {return -1;}
+    if (inode == NULL) { return -1; }
 
     size_t total_written = 0;
     while (to_write > 0) {
         size_t to_write_now;
         if (file->of_offset % BLOCK_SIZE + to_write > BLOCK_SIZE) {
             to_write_now = BLOCK_SIZE - (file->of_offset % BLOCK_SIZE);
-        } else {
-            to_write_now = to_write;
-        }
+        } else { to_write_now = to_write; }
         int starting_block = (int) (file->of_offset / BLOCK_SIZE);
 		int block_number = get_nth_block(inode, starting_block);
 		if(block_number == -1) return -1;
@@ -134,7 +132,7 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
         file->of_offset += to_write_now;
     }
 
-    return (ssize_t)to_write;
+    return (ssize_t)total_written;
 }
 
 /*
