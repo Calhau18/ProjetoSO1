@@ -4,27 +4,35 @@
 #include <stdlib.h>
 #include <string.h>
 
+static pthread_rwlock_t lock;
+
 int tfs_init() {
+	pthread_rwlock_init(&lock, NULL);
+	// Guarantee only on tfs is created
+	pthread_rwlock_wrlock(&lock);
+
     state_init();
 
     /* create root inode */
     int root = inode_create(T_DIRECTORY);
     if (root != ROOT_DIR_INUM) {
+		pthread_rwlock_unlock(&lock);
         return -1;
     }
 
+	pthread_rwlock_unlock(&lock);
     return 0;
 }
 
 int tfs_destroy() {
     state_destroy();
+	pthread_rwlock_destroy(&lock);
     return 0;
 }
 
 static bool valid_pathname(char const *name) {
     return name != NULL && strlen(name) > 1 && name[0] == '/';
 }
-
 
 int tfs_lookup(char const *name) {
     if (!valid_pathname(name)) {
@@ -56,13 +64,8 @@ int tfs_open(char const *name, int flags) {
 
         /* Trucate (if requested) */
         if (flags & TFS_O_TRUNC) {
-            if (inode->i_size > 0) {
-				if(inode_empty_content(inum) == -1){
-					return -1;
-				}
-                inode->i_size = 0;
-				memset(inode->i_data_blocks, -1, 11*sizeof(int));
-            }
+			// TODO: Should we just do this?
+			inode->i_size = 0;
         }
         /* Determine initial offset */
         if (flags & TFS_O_APPEND) {

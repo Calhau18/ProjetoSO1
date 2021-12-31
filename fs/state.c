@@ -19,7 +19,6 @@ static char fs_data[BLOCK_SIZE * DATA_BLOCKS];
 static allocation_state_t free_blocks[DATA_BLOCKS];
 
 /* Volatile FS state */
-
 static open_file_entry_t open_file_table[MAX_OPEN_FILES];
 static allocation_state_t free_open_file_entries[MAX_OPEN_FILES];
 
@@ -68,6 +67,9 @@ static void insert_delay() {
  * Initializes FS state
  */
 void state_init() {
+	pthread_rwlock_init(&lock, NULL);
+	pthread_rwlock_wrlock(&lock);
+
     for (size_t i = 0; i < INODE_TABLE_SIZE; i++) {
         freeinode_ts[i] = FREE;
     }
@@ -80,7 +82,7 @@ void state_init() {
         free_open_file_entries[i] = FREE;
     }
 
-	pthread_rwlock_init(&lock, NULL);
+	pthread_rwlock_unlock(&lock);
 }
 
 void state_destroy() { 
@@ -111,9 +113,11 @@ int inode_create(inode_type n_type) {
             if (n_type == T_DIRECTORY) {
                 /* Initializes directory (filling its block with empty
                  * entries, labeled with inumber==-1) */
+
                 int b = data_block_alloc();
                 if (b == -1) {
                     freeinode_ts[inumber] = FREE;
+					pthread_rwlock_unlock(&lock);
                     return -1;
                 }
 
@@ -121,9 +125,16 @@ int inode_create(inode_type n_type) {
 				memset(inode_table[inumber].i_data_blocks, -1, 11*sizeof(int));
 				inode_table[inumber].i_data_blocks[0] = b;
 
+				// TODO: queremos garantir que
+				// 1. os dados são sempre limpos na inicialização
+				// 2. os dados são sempre limpos na eliminação
+				// Como não temos garantias de que os dados após state init estão
+				// bem iniciados, é melhor a primeira
+
                 dir_entry_t *dir_entry = (dir_entry_t *)data_block_get(b);
                 if (dir_entry == NULL) {
                     freeinode_ts[inumber] = FREE;
+					pthread_rwlock_unlock(&lock);
                     return -1;
                 }
 
@@ -150,7 +161,6 @@ int inode_create(inode_type n_type) {
  * Returns: 0 if successful, -1 if failed
  */
 int inode_empty_content(int inumber){
-	// NOTE TO SELF: estamos a bloquear tudo
 	// CHECK later, em princípio é bloquear tudo por fora
 	inode_t inode = inode_table[inumber];
 	int i_block_number = (int) inode.i_size / BLOCK_SIZE;
@@ -302,18 +312,17 @@ int find_in_dir(int inumber, char const *sub_name) {
  * Returns: block index if successful, -1 otherwise
  */
 int data_block_alloc() {
+	// Note to future self: should always be locked from the outside
+	// Ou não??? esperar por resposta no Piazza
     for (int i = 0; i < DATA_BLOCKS; i++) {
         if (i * (int) sizeof(allocation_state_t) % BLOCK_SIZE == 0) {
             insert_delay(); // simulate storage access delay to free_blocks
         }
 
-		pthread_rwlock_wrlock(&lock);
         if (free_blocks[i] == FREE) {
             free_blocks[i] = TAKEN;
-			pthread_rwlock_unlock(&lock);
             return i;
         }
-		pthread_rwlock_unlock(&lock);
     }
     return -1;
 }
@@ -354,16 +363,15 @@ void *data_block_get(int block_number) {
  * Returns: file handle if successful, -1 otherwise
  */
 int add_to_open_file_table(int inumber, size_t offset) {
+	// Note to future self: should always be locked from the outside
+	// Ou não??? esperar por resposta no Piazza
     for (int i = 0; i < MAX_OPEN_FILES; i++) {
-		pthread_rwlock_wrlock(&lock);
         if(free_open_file_entries[i] == FREE){
             free_open_file_entries[i] = TAKEN;
             open_file_table[i].of_inumber = inumber;
             open_file_table[i].of_offset = offset;
-			pthread_rwlock_unlock(&lock);
             return i;
         }
-		pthread_rwlock_unlock(&lock);
     }
     return -1;
 }
