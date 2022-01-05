@@ -59,6 +59,8 @@ void *data_block_get(int block_number);
 int add_to_open_file_table(int inumber, size_t offset);
 int remove_from_open_file_table(int fhandle);
 open_file_entry_t *get_open_file_entry(int fhandle);
+
+int file_create(char const *name);
 ssize_t file_write_content(int fhandle, void const *buffer, size_t to_write);
 ssize_t file_read_content(int fhandle, void *buffer, size_t to_read);
 

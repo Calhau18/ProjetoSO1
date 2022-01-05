@@ -74,6 +74,7 @@ void state_init() {
 
     for (size_t i = 0; i < INODE_TABLE_SIZE; i++) {
         freeinode_ts[i] = FREE;
+		pthread_rwlock_init(inode_lock+i, NULL);
     }
 
     for (size_t i = 0; i < DATA_BLOCKS; i++) {
@@ -82,14 +83,8 @@ void state_init() {
 
     for (size_t i = 0; i < MAX_OPEN_FILES; i++) {
         free_open_file_entries[i] = FREE;
-    }
-
-	for(int i=0; i<MAX_OPEN_FILES; i++){
 		pthread_rwlock_init(file_lock+i, NULL);
-	}
-	for(int i=0; i<INODE_TABLE_SIZE; i++){
-		pthread_rwlock_init(inode_lock+i, NULL);
-	}
+    }
 
 	pthread_rwlock_unlock(&lock);
 }
@@ -190,7 +185,7 @@ int inode_empty_content(int inumber){
 	if(inode.i_data_blocks[10] != -1){
 		int * block = (int*)data_block_get(inode.i_data_blocks[10]);
 		for(size_t i=0; i<i_block_number-10; i++){
-			if(data_block_free(*(block+i)) == -1){
+			if(data_block_free(block[i]) == -1){
 				pthread_rwlock_unlock(inode_lock+inumber);
 				return -1;
 			}
@@ -262,6 +257,7 @@ int add_dir_entry(int inumber, int sub_inumber, char const *sub_name) {
 
     insert_delay(); // simulate storage access delay to i-node with inumber
 
+	/* Changing this directory, do not interfere */
 	pthread_rwlock_wrlock(inode_lock+inumber);
     if (inode_table[inumber].i_node_type != T_DIRECTORY) {
 		pthread_rwlock_unlock(inode_lock+inumber);
@@ -336,6 +332,12 @@ int find_in_dir(int inumber, char const *sub_name) {
 	pthread_rwlock_unlock(inode_lock+inumber);
     return -1;
 }
+/* 
+ * Note: allowing concurrent calls of find_in_dir on the same inumber would 
+ * require locks on the data_block level. This would be very expensive, for 
+ * example on a memory level (a lot of locks would be required). Therefore, 
+ * only one call to this function shall run at a time, in this implementation. 
+ */
 
 /*
  * Allocated a new data block
@@ -444,21 +446,23 @@ open_file_entry_t *get_open_file_entry(int fhandle) {
  * - -2 if the inode does not have that many blocks
  * - -1 on failure
  */
-int get_nth_block(inode_t * inode, int n){
-	if(inode == NULL || n < 0 || n >= 10 + BLOCK_SIZE / sizeof(int))
+int get_nth_block(inode_t * inode, size_t n){
+	/* Should be locked (for read, at least) from the outside */
+	if(inode == NULL || n >= 10 + BLOCK_SIZE / sizeof(int))
 		return -1;
 	if(inode->i_size == 0 || n > (inode->i_size - 1) / BLOCK_SIZE)
 		return -2;
 	if(n < 10)
 		return inode->i_data_blocks[n];
 	int* reference_block = (int*)data_block_get(inode->i_data_blocks[10]);
-	return *(reference_block + n - 10);
+	return reference_block[n-10];
 }
 
 /*
  * Allocs a new block for the inode, so that it has n blocks
  */
-ssize_t inode_alloc_nth_block(inode_t *inode, int n){
+ssize_t inode_alloc_nth_block(inode_t *inode, size_t n){
+	/* Should be locked (for write) from the outside */
 	int block_number = -1;
 	if(n < 10){
 		block_number = data_block_alloc();
@@ -475,9 +479,54 @@ ssize_t inode_alloc_nth_block(inode_t *inode, int n){
 		int* new_block_position = irreference_block + n - 10;
 		block_number = data_block_alloc();
 		if(block_number == -1) return -1;
-		*(new_block_position) = block_number;
+		*new_block_position = block_number;
 	}
 	return block_number;
+}
+
+ssize_t file_open(int inum, int flags){
+	pthread_rwlock_wrlock(inode_lock+inum);
+	if(inum >= 0){
+        /* The file already exists */
+        inode_t *inode = inode_get(inum);
+        if (inode == NULL) {
+			pthread_rwlock_unlock(inode_lock+inum);
+            return -1;
+        }
+
+        /* Trucate (if requested) */
+        if (flags & TFS_O_TRUNC) {
+			// TODO: verificar se isto não dá problema
+			inode_empty_content(inum);
+			inode->i_size = 0;
+        }
+        /* Determine initial offset */
+        if (flags & TFS_O_APPEND) {
+			pthread_rwlock_unlock(inode_lock+inum);
+            return inode->i_size;
+        } else {
+			pthread_rwlock_unlock(inode_lock+inum);
+            return 0;
+        }
+	}else if(flags & TFS_O_CREAT){
+        /* The file doesn't exist; the flags specify that it should be created*/
+		/* Create inode */
+		inum = inode_create(T_FILE);
+		if (inum == -1) {
+			pthread_rwlock_unlock(inode_lock+inum);
+			return -1;
+		}
+		/* Add entry in the root directory */
+		if (add_dir_entry(ROOT_DIR_INUM, inum, name) == -1) {
+			inode_delete(inum);
+			pthread_rwlock_unlock(inode_lock+inum);
+			return -1;
+		}
+		pthread_rwlock_unlock(inode_lock+inum);
+		return 0;
+	}
+	pthread_rwlock_unlock(inode_lock+inum);
+	return -1;
 }
 
 /* 
@@ -503,7 +552,7 @@ ssize_t file_write_content(int fhandle, void const *buffer, size_t to_write){
 
     size_t total_written = 0;
     while (to_write > 0) {
-        int starting_block = (int) (file->of_offset / BLOCK_SIZE);
+        size_t starting_block = file->of_offset / BLOCK_SIZE;
 		int block_number = get_nth_block(inode, starting_block);
 
 		// If there is no block number starting_block, create one
@@ -571,7 +620,7 @@ ssize_t file_read_content(int fhandle, void *buffer, size_t len){
 
 	size_t total_read = 0;
 	while(to_read > 0){
-		int starting_block = (int) (file->of_offset / BLOCK_SIZE);
+		size_t starting_block = file->of_offset / BLOCK_SIZE;
 		int block_number = get_nth_block(inode, starting_block);
 		if(block_number == -1){
 			pthread_rwlock_unlock(inode_lock+file->of_inumber);
@@ -603,3 +652,25 @@ ssize_t file_read_content(int fhandle, void *buffer, size_t len){
 	pthread_rwlock_unlock(file_lock+fhandle);
 	return (ssize_t)total_read;
 }
+
+ssize_t get_file_size(int fhandle){
+	pthread_rwlock_rdlock(file_lock+fhandle);
+    open_file_entry_t *file = get_open_file_entry(fhandle);
+    if(file == NULL){
+		pthread_rwlock_unlock(file_lock+fhandle);
+		return -1;
+
+	pthread_rwlock_rdlock(inode_lock+file->of_inumber);
+    inode_t *inode = inode_get(file->of_inumber);
+    if(inode == NULL){
+		pthread_rwlock_unlock(inode_lock+file->of_inumber);
+		pthread_rwlock_unlock(file_lock+fhandle);
+		return -1;
+	}
+
+	pthread_rwlock_unlock(inode_lock+file->of_inumber);
+	pthread_rwlock_unlock(file_lock+fhandle);
+	return inode->i_size;
+}
+	
+	
