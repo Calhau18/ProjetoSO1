@@ -594,7 +594,7 @@ ssize_t file_write_content(int fhandle, void const *buffer, size_t to_write){
 }
 
 /* 
- * Loads the content of the file given by fhandle (no more than to_write bytes) 
+ * Loads the content of the file given by fhandle (no more than len bytes) 
  * to buffer
  */
 ssize_t file_read_content(int fhandle, void *buffer, size_t len){
