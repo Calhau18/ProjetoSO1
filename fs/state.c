@@ -561,6 +561,8 @@ ssize_t file_write_content(int fhandle, void const *buffer, size_t to_write){
 		return -1; 
 	}
 
+	char const *cbuffer = (char const*) buffer;
+
     size_t total_written = 0;
     while (to_write > 0) {
         size_t starting_block = file->of_offset / BLOCK_SIZE;
@@ -588,9 +590,9 @@ ssize_t file_write_content(int fhandle, void const *buffer, size_t to_write){
 		if(write_now > to_write) write_now = to_write;
 
         /* Perform the actual write */
-        memcpy(block + position, buffer, write_now);
+        memcpy(block + position, cbuffer, write_now);
 
-        buffer += write_now;
+        cbuffer += write_now;
         file->of_offset += write_now;
         total_written += write_now;
         to_write -= write_now;
@@ -632,6 +634,8 @@ ssize_t file_read_content(int fhandle, void *buffer, size_t len){
     size_t to_read = inode->i_size - file->of_offset;
 	if(to_read > len) to_read = len;
 
+	char* cbuffer = (char*) buffer;
+
 	size_t total_read = 0;
 	while(to_read > 0){
 		size_t starting_block = file->of_offset / BLOCK_SIZE;
@@ -654,9 +658,9 @@ ssize_t file_read_content(int fhandle, void *buffer, size_t len){
 		size_t read_now = (size_t) (BLOCK_SIZE - position);
 		if(read_now > to_read) read_now = to_read;
 		
-		memcpy(buffer, block + position, read_now);
+		memcpy(cbuffer, block + position, read_now);
 		
-		buffer += read_now;
+		cbuffer += read_now;
 		file->of_offset += read_now;
 		total_read += read_now;
 		to_read -= read_now;
