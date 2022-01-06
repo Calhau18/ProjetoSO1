@@ -561,6 +561,7 @@ ssize_t file_write_content(int fhandle, void const *buffer, size_t to_write){
 		return -1; 
 	}
 
+	/* Buffer's information is to be written one byte at a time */
 	char const *cbuffer = (char const*) buffer;
 
     size_t total_written = 0;
@@ -634,6 +635,7 @@ ssize_t file_read_content(int fhandle, void *buffer, size_t len){
     size_t to_read = inode->i_size - file->of_offset;
 	if(to_read > len) to_read = len;
 
+	/* Buffer's information is to be read one byte at a time */
 	char* cbuffer = (char*) buffer;
 
 	size_t total_read = 0;
