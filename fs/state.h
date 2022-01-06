@@ -8,6 +8,12 @@
 #include <sys/types.h>
 #include <pthread.h>
 
+enum {
+    TFS_O_CREAT = 0b001,
+    TFS_O_TRUNC = 0b010,
+    TFS_O_APPEND = 0b100,
+};
+
 /*
  * Directory entry
  */
@@ -61,6 +67,7 @@ int remove_from_open_file_table(int fhandle);
 open_file_entry_t *get_open_file_entry(int fhandle);
 
 int file_create(char const *name);
+int file_open(int inum, char const *name, int flags);
 ssize_t file_write_content(int fhandle, void const *buffer, size_t to_write);
 ssize_t file_read_content(int fhandle, void *buffer, size_t to_read);
 

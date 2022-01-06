@@ -7,6 +7,7 @@
 static pthread_rwlock_t lock = PTHREAD_RWLOCK_INITIALIZER;
 
 int tfs_init() {
+	/* Guarantee only one tfs is created */
 	pthread_rwlock_wrlock(&lock);
     state_init();
 
@@ -50,22 +51,7 @@ int tfs_open(char const *name, int flags) {
     }
 
     int inum = tfs_lookup(name);
-	if(inum == -1){
-		return -1;
-	}
-
-    ssize_t offset = file_open(inum, flags);
-	if(offset = -1){
-		return -1;
-	}
-
-    /* Finally, add entry to the open file table and
-     * return the corresponding handle */
-    return add_to_open_file_table(inum, offset);
-
-    /* Note: for simplification, if file was created with TFS_O_CREAT and there
-     * is an error adding an entry to the open file table, the file is not
-     * opened but it remains created */
+    return file_open(inum, name, flags);
 }
 
 int tfs_close(int fhandle) { 
@@ -81,8 +67,8 @@ ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
 }
 
 int tfs_copy_to_external_fs(char const *source_path, char const *dest_path){
-	/* Editing content from outside the tfs context, do not screw up */
 	pthread_rwlock_wrlock(&lock);
+
 	int fhandle = tfs_open(source_path, 0);
 	if(fhandle == -1){
 		pthread_rwlock_unlock(&lock);
@@ -94,12 +80,10 @@ int tfs_copy_to_external_fs(char const *source_path, char const *dest_path){
 		return -1;
 	}
 
-	/* CHANGED: breadman says we're killing our stack */
-	/* TODO: definir BUFFER_SIZE (maybe BLOCK_SIZE?) */
 	char* buffer[BUFFER_SIZE];
 	ssize_t bytes_read = 1;
 	while(bytes_read > 0){
-		bytes_read == tfs_read(fhandle, buffer, BUFFER_SIZE);
+		bytes_read = tfs_read(fhandle, buffer, BUFFER_SIZE);
 		if(bytes_read == -1){
 			pthread_rwlock_unlock(&lock);
 			return -1;

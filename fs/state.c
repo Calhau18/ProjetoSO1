@@ -484,9 +484,11 @@ ssize_t inode_alloc_nth_block(inode_t *inode, size_t n){
 	return block_number;
 }
 
-ssize_t file_open(int inum, int flags){
-	pthread_rwlock_wrlock(inode_lock+inum);
+int file_open(int inum, char const *name, int flags){
+	size_t offset = 0;
+
 	if(inum >= 0){
+		pthread_rwlock_wrlock(inode_lock+inum);
         /* The file already exists */
         inode_t *inode = inode_get(inum);
         if (inode == NULL) {
@@ -497,36 +499,44 @@ ssize_t file_open(int inum, int flags){
         /* Trucate (if requested) */
         if (flags & TFS_O_TRUNC) {
 			// TODO: verificar se isto não dá problema
-			inode_empty_content(inum);
+			if(inode_empty_content(inum) == -1){
+				pthread_rwlock_unlock(inode_lock+inum);
+				return -1;
+			}
 			inode->i_size = 0;
         }
         /* Determine initial offset */
         if (flags & TFS_O_APPEND) {
-			pthread_rwlock_unlock(inode_lock+inum);
-            return inode->i_size;
+            offset = inode->i_size;
         } else {
-			pthread_rwlock_unlock(inode_lock+inum);
-            return 0;
+            offset = 0;
         }
+		pthread_rwlock_unlock(inode_lock+inum);
 	}else if(flags & TFS_O_CREAT){
         /* The file doesn't exist; the flags specify that it should be created*/
 		/* Create inode */
 		inum = inode_create(T_FILE);
 		if (inum == -1) {
-			pthread_rwlock_unlock(inode_lock+inum);
 			return -1;
 		}
+		pthread_rwlock_wrlock(inode_lock+inum);
 		/* Add entry in the root directory */
-		if (add_dir_entry(ROOT_DIR_INUM, inum, name) == -1) {
+		if (add_dir_entry(ROOT_DIR_INUM, inum, name+1) == -1) {
 			inode_delete(inum);
 			pthread_rwlock_unlock(inode_lock+inum);
 			return -1;
 		}
+		offset = 0;
 		pthread_rwlock_unlock(inode_lock+inum);
-		return 0;
 	}
-	pthread_rwlock_unlock(inode_lock+inum);
-	return -1;
+
+    /* Finally, add entry to the open file table and
+     * return the corresponding handle */
+    return add_to_open_file_table(inum, offset);
+
+    /* Note: for simplification, if file was created with TFS_O_CREAT and there
+     * is an error adding an entry to the open file table, the file is not
+     * opened but it remains created */
 }
 
 /* 
@@ -541,6 +551,7 @@ ssize_t file_write_content(int fhandle, void const *buffer, size_t to_write){
         return -1;
     }
 
+	/* Only one write is allowed in the same file at a time */
 	pthread_rwlock_wrlock(inode_lock+file->of_inumber);
     /* From the open file table entry, we get the inode */
     inode_t *inode = inode_get(file->of_inumber);
@@ -598,7 +609,9 @@ ssize_t file_write_content(int fhandle, void const *buffer, size_t to_write){
  * to buffer
  */
 ssize_t file_read_content(int fhandle, void *buffer, size_t len){
+	/* Only one read is allowed in a open file entry at a time */
 	pthread_rwlock_wrlock(file_lock+fhandle);
+
     open_file_entry_t *file = get_open_file_entry(fhandle);
     if (file == NULL) {
 		pthread_rwlock_unlock(file_lock+fhandle);
@@ -606,6 +619,7 @@ ssize_t file_read_content(int fhandle, void *buffer, size_t len){
     }
 
     /* From the open file table entry, we get the inode */
+	/* Several reads are allowed in the same file (different open file entries) */
 	pthread_rwlock_rdlock(inode_lock+file->of_inumber);
     inode_t *inode = inode_get(file->of_inumber);
     if (inode == NULL) {
@@ -659,6 +673,7 @@ ssize_t get_file_size(int fhandle){
     if(file == NULL){
 		pthread_rwlock_unlock(file_lock+fhandle);
 		return -1;
+	}
 
 	pthread_rwlock_rdlock(inode_lock+file->of_inumber);
     inode_t *inode = inode_get(file->of_inumber);
@@ -670,7 +685,6 @@ ssize_t get_file_size(int fhandle){
 
 	pthread_rwlock_unlock(inode_lock+file->of_inumber);
 	pthread_rwlock_unlock(file_lock+fhandle);
-	return inode->i_size;
+	return (ssize_t)inode->i_size;
 }
-	
-	
+
