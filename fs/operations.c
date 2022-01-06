@@ -96,7 +96,7 @@ int tfs_copy_to_external_fs(char const *source_path, char const *dest_path){
 
 	/* CHANGED: breadman says we're killing our stack */
 	/* TODO: definir BUFFER_SIZE (maybe BLOCK_SIZE?) */
-	void* buffer[BUFFER_SIZE];
+	char* buffer[BUFFER_SIZE];
 	ssize_t bytes_read = 1;
 	while(bytes_read > 0){
 		bytes_read == tfs_read(fhandle, buffer, BUFFER_SIZE);
