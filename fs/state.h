@@ -71,4 +71,7 @@ int file_open(int inum, char const *name, int flags);
 ssize_t file_write_content(int fhandle, void const *buffer, size_t to_write);
 ssize_t file_read_content(int fhandle, void *buffer, size_t to_read);
 
+void file_lock(int fhandle);
+void file_unlock(int fhandle);
+
 #endif // STATE_H

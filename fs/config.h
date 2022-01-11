@@ -12,6 +12,4 @@
 
 #define DELAY (5000)
 
-#define BUFFER_SIZE (1024)
-
 #endif // CONFIG_H

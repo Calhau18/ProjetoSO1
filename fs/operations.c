@@ -4,28 +4,20 @@
 #include <stdlib.h>
 #include <string.h>
 
-static pthread_rwlock_t lock = PTHREAD_RWLOCK_INITIALIZER;
-
 int tfs_init() {
-	/* Guarantee only one tfs is created */
-	pthread_rwlock_wrlock(&lock);
     state_init();
 
     /* create root inode */
     int root = inode_create(T_DIRECTORY);
     if (root != ROOT_DIR_INUM) {
-		pthread_rwlock_unlock(&lock);
         return -1;
     }
 
-	pthread_rwlock_unlock(&lock);
     return 0;
 }
 
 int tfs_destroy() {
-	pthread_rwlock_wrlock(&lock);
     state_destroy();
-	pthread_rwlock_unlock(&lock);
 	return 0;
 }
 
@@ -67,43 +59,41 @@ ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
 }
 
 int tfs_copy_to_external_fs(char const *source_path, char const *dest_path){
-	pthread_rwlock_wrlock(&lock);
+	/* This constant is only used for this function, thus defined here 
+	 * Although, it is constant and therefore we use Caps Lock */
+	int BUFFER_SIZE = 1024;
 
 	int fhandle = tfs_open(source_path, 0);
-	if(fhandle == -1){
-		pthread_rwlock_unlock(&lock);
+	if(fhandle == -1)
 		return -1;
-	}
+	// TODO: podemos assumir que só esta thread tem acesso a este fhandle
+	file_lock(fhandle);
+
 	FILE* fd = fopen(dest_path, "w");
-	if(fd == NULL){
-		pthread_rwlock_unlock(&lock);
+	if(fd == NULL)
+		file_unlock(fhandle);
 		return -1;
-	}
 
 	char* buffer[BUFFER_SIZE];
 	ssize_t bytes_read = 1;
 	while(bytes_read > 0){
 		bytes_read = tfs_read(fhandle, buffer, BUFFER_SIZE);
 		if(bytes_read == -1){
-			pthread_rwlock_unlock(&lock);
+			file_unlock(fhandle);
 			return -1;
 		}
 		if(bytes_read != 0 && fwrite(buffer, (size_t)bytes_read, 1, fd) == 0){
-			pthread_rwlock_unlock(&lock);
+			file_unlock(fhandle);
 			return -1;
 		}
 	}
 
-    if(tfs_close(fhandle) == -1){
-		pthread_rwlock_unlock(&lock);
+	file_unlock(fhandle);
+    if(tfs_close(fhandle) == -1)
 		return -1;
-	}
 
-    if(fclose(fd) == -1){
-		pthread_rwlock_unlock(&lock);
+    if(fclose(fd) == -1)
 		return -1;
-	}
 
-	pthread_rwlock_unlock(&lock);
 	return 0;
 }

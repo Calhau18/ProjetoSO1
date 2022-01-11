@@ -34,9 +34,10 @@ static inline bool valid_file_handle(int file_handle) {
     return file_handle >= 0 && file_handle < MAX_OPEN_FILES;
 }
 
-static pthread_rwlock_t lock = PTHREAD_RWLOCK_INITIALIZER;
 static pthread_rwlock_t file_lock[MAX_OPEN_FILES];
 static pthread_rwlock_t inode_lock[INODE_TABLE_SIZE];
+static pthread_rwlock_t inode_creation_lock;
+static pthread_rwlock_t data_block_lock;
 
 /**
  * We need to defeat the optimizer for the insert_delay() function.
@@ -69,29 +70,24 @@ static void insert_delay() {
  * Initializes FS state
  */
 void state_init() {
-	// Guarantee only one state is created
-	pthread_rwlock_wrlock(&lock);
-
     for (size_t i = 0; i < INODE_TABLE_SIZE; i++) {
         freeinode_ts[i] = FREE;
 		pthread_rwlock_init(inode_lock+i, NULL);
     }
+	pthread_rwlock_init(&inode_creation_lock, NULL);
 
     for (size_t i = 0; i < DATA_BLOCKS; i++) {
         free_blocks[i] = FREE;
     }
+	pthread_rwlock_init(&data_block_lock, NULL);
 
     for (size_t i = 0; i < MAX_OPEN_FILES; i++) {
         free_open_file_entries[i] = FREE;
 		pthread_rwlock_init(file_lock+i, NULL);
     }
-
-	pthread_rwlock_unlock(&lock);
 }
 
 void state_destroy() { 
-	pthread_rwlock_wrlock(&lock);
-
 	/* Destroy locks */
 	for(int i=0; i<MAX_OPEN_FILES; i++){
 		pthread_rwlock_destroy(file_lock+i);
@@ -99,8 +95,8 @@ void state_destroy() {
 	for(int i=0; i<INODE_TABLE_SIZE; i++){
 		pthread_rwlock_destroy(inode_lock+i);
 	}
-
-	pthread_rwlock_unlock(&lock);
+	pthread_rwlock_destroy(&inode_creation_lock);
+	pthread_rwlock_destroy(&data_block_lock);
 }
 
 /*
@@ -111,17 +107,25 @@ void state_destroy() {
  *  new i-node's number if successfully created, -1 otherwise
  */
 int inode_create(inode_type n_type) {
+	// TODO
+	/* Only one thread shall search for a free entry at a time */
+	pthread_rwlock_wrlock(&inode_creation_lock);
     for (int inumber = 0; inumber < INODE_TABLE_SIZE; inumber++) {
         if ((inumber * (int) sizeof(allocation_state_t) % BLOCK_SIZE) == 0) {
             insert_delay(); // simulate storage access delay (to freeinode_ts)
         }
 
-		/* Nobody change this inode */
-		pthread_rwlock_wrlock(inode_lock+inumber);
         /* Finds first free entry in i-node table */
         if (freeinode_ts[inumber] == FREE) {
+			/* Nobody change this inode */
+			pthread_rwlock_wrlock(inode_lock+inumber);
+			
             /* Found a free entry, so takes it for the new i-node*/
             freeinode_ts[inumber] = TAKEN;
+
+			/* No longer searching for a place for the new inode */
+			pthread_rwlock_unlock(&inode_creation_lock);
+
             insert_delay(); // simulate storage access delay (to i-node)
             inode_table[inumber].i_node_type = n_type;
 
@@ -132,7 +136,8 @@ int inode_create(inode_type n_type) {
                 if (b == -1) {
                     freeinode_ts[inumber] = FREE;
 					pthread_rwlock_unlock(inode_lock+inumber);
-                    return -1;
+                    return -1  4 +static pthread_rwlock_t inode_creation_lock;^M
+;
                 }
 
                 inode_table[inumber].i_size = BLOCK_SIZE;
@@ -159,6 +164,7 @@ int inode_create(inode_type n_type) {
         }
 		pthread_rwlock_unlock(inode_lock+inumber);
     }
+	pthread_rwlock_unlock(&inode_creation_lock);
     return -1;
 }
 
@@ -168,16 +174,13 @@ int inode_create(inode_type n_type) {
  *  - inumber: i-node's number
  * Returns: 0 if successful, -1 if failed
  */
+/* NOTE: The data changed by this function shall be locked from the outside */
 int inode_empty_content(int inumber){
-	/* Changing inode content, do not interfere */
-	pthread_rwlock_wrlock(inode_lock+inumber);
-
 	inode_t inode = inode_table[inumber];
 	size_t i_block_number = inode.i_size / BLOCK_SIZE;
     if (inode.i_size > 0) {
 		for(size_t i=0; i<i_block_number && i<10; i++){
 			if(data_block_free(inode.i_data_blocks[i]) == -1){
-				pthread_rwlock_unlock(inode_lock+inumber);
 				return -1;
 			}
 		}
@@ -186,16 +189,13 @@ int inode_empty_content(int inumber){
 		int * block = (int*)data_block_get(inode.i_data_blocks[10]);
 		for(size_t i=0; i<i_block_number-10; i++){
 			if(data_block_free(block[i]) == -1){
-				pthread_rwlock_unlock(inode_lock+inumber);
 				return -1;
 			}
 		}
 		if(data_block_free(inode.i_data_blocks[10]) == -1){
-			pthread_rwlock_unlock(inode_lock+inumber);
 			return -1;
 		}
 	}
-	pthread_rwlock_unlock(inode_lock+inumber);
 	return 0;
 }
 
@@ -349,10 +349,14 @@ int data_block_alloc() {
             insert_delay(); // simulate storage access delay to free_blocks
         }
 
+		// Only one thread at a time shall alloc a data block
+		pthread_rwlock_wrlock(&data_block_lock);
         if (free_blocks[i] == FREE) {
             free_blocks[i] = TAKEN;
+			pthread_rwlock_unlock(&data_block_lock);
             return i;
         }
+		pthread_rwlock_unlock(&data_block_lock);
     }
     return -1;
 }
@@ -694,3 +698,10 @@ ssize_t get_file_size(int fhandle){
 	return (ssize_t)inode->i_size;
 }
 
+void file_lock(int fhandle){
+	pthread_rwlock_wrlock(file_lock+fhandle);
+}
+
+void file_unlock(int fhandle){
+	pthread_rwlock_unlock(file_lock+fhandle);
+}
