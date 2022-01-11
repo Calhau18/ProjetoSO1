@@ -136,8 +136,7 @@ int inode_create(inode_type n_type) {
                 if (b == -1) {
                     freeinode_ts[inumber] = FREE;
 					pthread_rwlock_unlock(inode_lock+inumber);
-                    return -1  4 +static pthread_rwlock_t inode_creation_lock;^M
-;
+                    return -1;
                 }
 
                 inode_table[inumber].i_size = BLOCK_SIZE;
@@ -162,7 +161,6 @@ int inode_create(inode_type n_type) {
 			pthread_rwlock_unlock(inode_lock+inumber);
             return inumber;
         }
-		pthread_rwlock_unlock(inode_lock+inumber);
     }
 	pthread_rwlock_unlock(&inode_creation_lock);
     return -1;
@@ -698,10 +696,10 @@ ssize_t get_file_size(int fhandle){
 	return (ssize_t)inode->i_size;
 }
 
-void file_lock(int fhandle){
+void file_lock_thread(int fhandle){
 	pthread_rwlock_wrlock(file_lock+fhandle);
 }
 
-void file_unlock(int fhandle){
+void file_unlock_thread(int fhandle){
 	pthread_rwlock_unlock(file_lock+fhandle);
 }
