@@ -3,7 +3,7 @@
 #include <string.h>
 #include <pthread.h>
 
-#define THREAD_COUNT 10
+#define THREAD_COUNT 100
 
 struct arguments {
     int count;
@@ -25,15 +25,16 @@ void* mt_safety_reads_writes(void* arguments) {
         fd = tfs_open(args->path, TFS_O_CREAT); //Open file
         assert(fd != -1);
 
-        r = tfs_write(fd, args->str, 4);//Write 4 bytes
+        r = tfs_write(fd, args->str, sizeof(args->str));//Write 4 bytes
+        assert(r==sizeof(args->str));
 
         assert(tfs_close(fd) != -1);
 
         fd = tfs_open(args->path, 0); //Open file
         assert(fd != -1);
 
-        r = tfs_read(fd, temp_buffer, 4);
-        assert(r == 4);
+        r = tfs_read(fd, temp_buffer, sizeof(args->str));
+        assert(strcmp(temp_buffer, args->str) == 0);
 
         assert(tfs_close(fd) != -1);
     }
