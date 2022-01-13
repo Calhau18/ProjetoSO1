@@ -107,7 +107,6 @@ void state_destroy() {
  *  new i-node's number if successfully created, -1 otherwise
  */
 int inode_create(inode_type n_type) {
-	// TODO
 	/* Only one thread shall search for a free entry at a time */
 	pthread_rwlock_wrlock(&inode_creation_lock);
     for (int inumber = 0; inumber < INODE_TABLE_SIZE; inumber++) {
@@ -394,7 +393,7 @@ void *data_block_get(int block_number) {
  * 	- Initial offset
  * Returns: file handle if successful, -1 otherwise
  */
-int add_to_open_file_table(int inumber, size_t offset) {
+int add_to_open_file_table(int inumber, size_t offset, bool append) {
     for(int i=0; i<MAX_OPEN_FILES; i++) {
 		pthread_rwlock_wrlock(file_lock+i);
 
@@ -402,6 +401,7 @@ int add_to_open_file_table(int inumber, size_t offset) {
             free_open_file_entries[i] = TAKEN;
             open_file_table[i].of_inumber = inumber;
             open_file_table[i].of_offset = offset;
+			open_file_table[i].of_append = append;
 			
 			pthread_rwlock_unlock(file_lock+i);
             return i;
@@ -488,6 +488,7 @@ ssize_t inode_alloc_nth_block(inode_t *inode, size_t n){
 
 int file_open(int inum, char const *name, int flags){
 	size_t offset = 0;
+	bool append = false;
 
 	if(inum >= 0){
 		pthread_rwlock_wrlock(inode_lock+inum);
@@ -500,7 +501,6 @@ int file_open(int inum, char const *name, int flags){
 
         /* Trucate (if requested) */
         if (flags & TFS_O_TRUNC) {
-			// TODO: verificar se isto não dá problema
 			if(inode_empty_content(inum) == -1){
 				pthread_rwlock_unlock(inode_lock+inum);
 				return -1;
@@ -510,6 +510,7 @@ int file_open(int inum, char const *name, int flags){
         /* Determine initial offset */
         if (flags & TFS_O_APPEND) {
             offset = inode->i_size;
+			append = true;
         } else {
             offset = 0;
         }
@@ -530,11 +531,13 @@ int file_open(int inum, char const *name, int flags){
 		}
 		offset = 0;
 		pthread_rwlock_unlock(inode_lock+inum);
+	}else{
+		return -1;
 	}
 
     /* Finally, add entry to the open file table and
      * return the corresponding handle */
-    return add_to_open_file_table(inum, offset);
+    return add_to_open_file_table(inum, offset, append);
 
     /* Note: for simplification, if file was created with TFS_O_CREAT and there
      * is an error adding an entry to the open file table, the file is not
@@ -566,6 +569,7 @@ ssize_t file_write_content(int fhandle, void const *buffer, size_t to_write){
 	/* Buffer's information is to be written one byte at a time */
 	char const *cbuffer = (char const*) buffer;
 
+	if(file->of_append) file->of_offset = inode->i_size;
     size_t total_written = 0;
     while (to_write > 0) {
         size_t starting_block = file->of_offset / BLOCK_SIZE;
@@ -673,33 +677,4 @@ ssize_t file_read_content(int fhandle, void *buffer, size_t len){
 	pthread_rwlock_unlock(inode_lock+file->of_inumber);
 	pthread_rwlock_unlock(file_lock+fhandle);
 	return (ssize_t)total_read;
-}
-
-ssize_t get_file_size(int fhandle){
-	pthread_rwlock_rdlock(file_lock+fhandle);
-    open_file_entry_t *file = get_open_file_entry(fhandle);
-    if(file == NULL){
-		pthread_rwlock_unlock(file_lock+fhandle);
-		return -1;
-	}
-
-	pthread_rwlock_rdlock(inode_lock+file->of_inumber);
-    inode_t *inode = inode_get(file->of_inumber);
-    if(inode == NULL){
-		pthread_rwlock_unlock(inode_lock+file->of_inumber);
-		pthread_rwlock_unlock(file_lock+fhandle);
-		return -1;
-	}
-
-	pthread_rwlock_unlock(inode_lock+file->of_inumber);
-	pthread_rwlock_unlock(file_lock+fhandle);
-	return (ssize_t)inode->i_size;
-}
-
-void file_lock_thread(int fhandle){
-	pthread_rwlock_wrlock(file_lock+fhandle);
-}
-
-void file_unlock_thread(int fhandle){
-	pthread_rwlock_unlock(file_lock+fhandle);
 }

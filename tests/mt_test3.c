@@ -3,7 +3,7 @@
 #include <string.h>
 #include <pthread.h>
 
-#define THREAD_COUNT 100
+#define THREAD_COUNT 10
 
 struct arguments {
     int count;
