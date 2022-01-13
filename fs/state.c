@@ -657,7 +657,7 @@ ssize_t file_read_content(int fhandle, void *buffer, size_t len){
 	char* cbuffer = (char*) buffer;
 
 	size_t total_read = 0;
-	while(to_read > 0 || file->of_append){
+	while(to_read > 0 && !file->of_append){
 		size_t starting_block = file->of_offset / BLOCK_SIZE;
 		int block_number = get_nth_block(inode, starting_block);
 		if(block_number == -1){

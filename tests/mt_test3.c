@@ -35,8 +35,8 @@ int main() {
     ssize_t r = 0;
     char* path = "/teste_3";
     char* chars[THREAD_COUNT] = {"aa", "bb", "cc", "dd", "ee", "ff", "gg", "hh", "ii", "jj"}; // Assuming there is a pair of letters per thread
-    size_t count = MAX_DATA_SIZE / ((strlen(chars[0])+1) * THREAD_COUNT);
     size_t size = (size_t)strlen(chars[0])+1;
+    size_t count = MAX_DATA_SIZE / size * THREAD_COUNT;
 
     assert(tfs_init() != -1);
     fd = tfs_open(path, TFS_O_CREAT);
@@ -69,13 +69,15 @@ int main() {
     for (size_t i=0; i<count*THREAD_COUNT; i++) { // Check for each write that was made if it was made correctly
         char* temp_buffer = buffer;
         int check = -1;
-        int c = 0; 
+        int c = 0;
+
         r = tfs_read(fd, temp_buffer, size);
         assert(r == size);
-        do {
+
+        do { // Compare read string with strings in chars
             check = strcmp(temp_buffer, chars[c++]);
         } while (check != 0 && c < THREAD_COUNT);
-        assert(check == 0);
+        assert(check == 0); // Make sure a match was found
     }
 
     assert(tfs_close(fd) != -1);
