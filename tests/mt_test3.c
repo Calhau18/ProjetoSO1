@@ -19,10 +19,10 @@ struct arguments {
 void* mt_safety_test_3(void* arguments) {
     struct arguments* args = arguments;
     ssize_t r;
-
-    for (int i=0; i<args->count; i++) {
+  
+    for (size_t i=0; i<args->count; i++) {
         r = tfs_write(args->fd, args->str, args->size);
-        assert(r == args->size);
+        assert(r == (ssize_t)args->size);
     }
 
     return NULL;
@@ -36,8 +36,8 @@ int main() {
     char* path = "/teste_3";
     char* chars[THREAD_COUNT] = {"aa", "bb", "cc", "dd", "ee", "ff", "gg", "hh", "ii", "jj"}; // Assuming there is a pair of letters per thread
     size_t size = (size_t)strlen(chars[0])+1;
-    size_t count = MAX_DATA_SIZE / size * THREAD_COUNT;
-
+    size_t count = MAX_DATA_SIZE / ( size * THREAD_COUNT );
+    
     assert(tfs_init() != -1);
     fd = tfs_open(path, TFS_O_CREAT);
     assert(fd != -1);
@@ -72,7 +72,7 @@ int main() {
         int c = 0;
 
         r = tfs_read(fd, temp_buffer, size);
-        assert(r == size);
+        assert(r == (ssize_t) size);
 
         do { // Compare read string with strings in chars
             check = strcmp(temp_buffer, chars[c++]);
