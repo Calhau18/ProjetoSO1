@@ -182,6 +182,7 @@ int inode_empty_content(int inumber){
 			if(data_block_free(inode.i_data_blocks[i]) == -1){
 				return -1;
 			}
+			inode.i_data_blocks[i] = -1;
 		}
     }
 	if(inode.i_data_blocks[10] != -1){
@@ -194,6 +195,7 @@ int inode_empty_content(int inumber){
 		if(data_block_free(inode.i_data_blocks[10]) == -1){
 			return -1;
 		}
+		inode.i_data_blocks[10] = -1;
 	}
 	inode.i_size = 0;
 	return 0;
@@ -404,7 +406,7 @@ int add_to_open_file_table(int inumber, bool append) {
             free_open_file_entries[i] = TAKEN;
             open_file_table[i].of_inumber = inumber;
             open_file_table[i].of_offset = 0;
-			open_file_table[i].of_append = append;
+			open_file_table[i].append_mode = append;
 			
 			pthread_rwlock_unlock(file_lock+i);
             return i;
@@ -535,14 +537,15 @@ int file_open(int inum, char const *name, int flags){
 			 * read/write operation starts as offset 0 like any regular read/write. */
         }
 
-        if (flags & TFS_O_APPEND) 
+        if (flags & TFS_O_APPEND){
 			/* This boolean will be used to tell the read/write opperation that
 			 * it shall seek the end of the file to start the operation */
 			append = true;
+		}
 
 		pthread_rwlock_unlock(inode_lock+inum);
 	}else if(flags & TFS_O_CREAT){
-        /* The file doesn't exist; the flags specify that it should be created*/
+        /* The file doesn't exist; the flags specify that it should be created */
 		inum = file_create(name+1);
 	}else{
 		return -1;
@@ -582,9 +585,9 @@ ssize_t file_write_content(int fhandle, void const *buffer, size_t len){
 	char const *cbuffer = (char const*) buffer;
 
 	/* Guarantee the first write with O_APPEND is to the end of the file */
-	if(file->of_append){
+	if(file->append_mode){
 		file->of_offset = inode->i_size;
-		file->of_append = false;
+		file->append_mode = false;
 	}
 	
 	/* If we are writing to an improper index, return error. This can happen
@@ -673,7 +676,7 @@ ssize_t file_read_content(int fhandle, void *buffer, size_t len){
 	char* cbuffer = (char*) buffer;
 
 	size_t total_read = 0;
-	while(to_read > 0 || file->of_append){
+	while(to_read > 0 && !file->append_mode){
 		size_t starting_block = file->of_offset / BLOCK_SIZE;
 		int block_number = get_nth_block(inode, starting_block);
 		if(block_number == -1){
@@ -710,7 +713,7 @@ ssize_t file_read_content(int fhandle, void *buffer, size_t len){
 	 * with it. Our program will always return 0 if the first operation performed on 
 	 * a file oppened with O_APPEND is a read. Afterwards, it can read from the offset
 	 * like any other thread (if the file is increased in the mean time) */
-	file->of_append = false;
+	file->append_mode = false;
 
 	pthread_rwlock_unlock(file_lock+fhandle);
 	return (ssize_t)total_read;
