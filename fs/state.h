@@ -3,7 +3,6 @@
 
 #include "config.h"
 
-#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/types.h>
@@ -43,7 +42,6 @@ typedef enum { FREE = 0, TAKEN = 1 } allocation_state_t;
 typedef struct {
     int of_inumber;
     size_t of_offset;
-	bool append_mode;
 } open_file_entry_t;
 
 #define MAX_DIR_ENTRIES (BLOCK_SIZE / sizeof(dir_entry_t))
@@ -64,7 +62,7 @@ int data_block_alloc();
 int data_block_free(int block_number);
 void *data_block_get(int block_number);
 
-int add_to_open_file_table(int inumber, bool append);
+int add_to_open_file_table(int inumber, size_t offset);
 int remove_from_open_file_table(int fhandle);
 open_file_entry_t *get_open_file_entry(int fhandle);
 
