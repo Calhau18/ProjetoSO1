@@ -35,7 +35,6 @@ static inline bool valid_file_handle(int file_handle) {
 }
 
 static pthread_rwlock_t file_lock[MAX_OPEN_FILES];
-static pthread_rwlock_t file_table_lock;
 static pthread_rwlock_t inode_lock[INODE_TABLE_SIZE];
 static pthread_rwlock_t inode_creation_lock;
 static pthread_rwlock_t data_block_lock;
@@ -86,7 +85,6 @@ void state_init() {
         free_open_file_entries[i] = FREE;
 		pthread_rwlock_init(file_lock+i, NULL);
     }
-	pthread_rwlock_init(&file_table_lock, NULL);
 }
 
 void state_destroy() { 
@@ -99,7 +97,6 @@ void state_destroy() {
 	}
 	pthread_rwlock_destroy(&inode_creation_lock);
 	pthread_rwlock_destroy(&data_block_lock);
-	pthread_rwlock_destroy(&file_table_lock);
 }
 
 /*
@@ -183,7 +180,6 @@ int inode_empty_content(int inumber){
 			if(data_block_free(inode.i_data_blocks[i]) == -1){
 				return -1;
 			}
-			inode.i_data_blocks[i] = -1;
 		}
     }
 	if(inode.i_data_blocks[10] != -1){
@@ -196,9 +192,7 @@ int inode_empty_content(int inumber){
 		if(data_block_free(inode.i_data_blocks[10]) == -1){
 			return -1;
 		}
-		inode.i_data_blocks[10] = -1;
 	}
-	inode.i_size = 0;
 	return 0;
 }
 
@@ -210,10 +204,10 @@ int inode_empty_content(int inumber){
  */
 int inode_delete(int inumber) {
 	/* Nobody change this inode while deleting */
+	pthread_rwlock_wrlock(inode_lock+inumber);
     insert_delay();
     insert_delay();
 
-	pthread_rwlock_wrlock(inode_lock+inumber);
     if (!valid_inumber(inumber) || freeinode_ts[inumber] == FREE) {
 		pthread_rwlock_unlock(inode_lock+inumber);
         return -1;
@@ -422,20 +416,16 @@ int add_to_open_file_table(int inumber, size_t offset) {
  * Returns 0 is success, -1 otherwise
  */
 int remove_from_open_file_table(int fhandle) {
-	/* Only one thread shall be adding/removing from the file table at one time */
-	pthread_rwlock_wrlock(&file_table_lock);
-	/* No thread shall be read/writing on this file */
+	/* Only one thread shall remove the file from the table */
 	pthread_rwlock_wrlock(file_lock+fhandle);
 
     if (!valid_file_handle(fhandle) ||
         free_open_file_entries[fhandle] != TAKEN) {
 		pthread_rwlock_unlock(file_lock+fhandle);
-		pthread_rwlock_unlock(&file_table_lock);
         return -1;
     }
     free_open_file_entries[fhandle] = FREE;
 	pthread_rwlock_unlock(file_lock+fhandle);
-	pthread_rwlock_unlock(&file_table_lock);
     return 0;
 }
 
@@ -495,25 +485,6 @@ ssize_t inode_alloc_nth_block(inode_t *inode, size_t n){
 	return block_number;
 }
 
-int file_create(char const *name){
-	/* Only one file shall be put/removed from the open file table at a time */
-	pthread_rwlock_wrlock(&file_table_lock);
-	/* Create inode */
-	int inum = inode_create(T_FILE);
-	if (inum == -1) {
-		pthread_rwlock_unlock(&file_table_lock);
-		return -1;
-	}
-	/* Add entry in the root directory */
-	if (add_dir_entry(ROOT_DIR_INUM, inum, name) == -1) {
-		inode_delete(inum);
-		pthread_rwlock_unlock(&file_table_lock);
-		return -1;
-	}
-	pthread_rwlock_unlock(&file_table_lock);
-	return inum;
-}
-
 int file_open(int inum, char const *name, int flags){
 	size_t offset = 0;
 
@@ -532,26 +503,35 @@ int file_open(int inum, char const *name, int flags){
 				pthread_rwlock_unlock(inode_lock+inum);
 				return -1;
 			}
+			inode->i_size = 0;
         }
-
-		/* Determine initial offset */
-        if(flags & TFS_O_APPEND){
-			offset = inode->i_size;
-		}else{
-			offset = 0;
-		}
-
+        /* Determine initial offset */
+        if (flags & TFS_O_APPEND) {
+            offset = inode->i_size;
+        } else {
+            offset = 0;
+        }
 		pthread_rwlock_unlock(inode_lock+inum);
 	}else if(flags & TFS_O_CREAT){
-        /* The file doesn't exist; the flags specify that it should be created */
-		inum = file_create(name+1);
-		if(inum == -1)
+        /* The file doesn't exist; the flags specify that it should be created*/
+		/* Create inode */
+		inum = inode_create(T_FILE);
+		if (inum == -1) {
 			return -1;
-	}else{
-		return -1;
+		}
+		pthread_rwlock_wrlock(inode_lock+inum);
+		/* Add entry in the root directory */
+		if (add_dir_entry(ROOT_DIR_INUM, inum, name+1) == -1) {
+			inode_delete(inum);
+			pthread_rwlock_unlock(inode_lock+inum);
+			return -1;
+		}
+		offset = 0;
+		pthread_rwlock_unlock(inode_lock+inum);
 	}
 
-    /* Finally, add entry to open file table and return corresponding handle */
+    /* Finally, add entry to the open file table and
+     * return the corresponding handle */
     return add_to_open_file_table(inum, offset);
 
     /* Note: for simplification, if file was created with TFS_O_CREAT and there
@@ -586,10 +566,10 @@ ssize_t file_write_content(int fhandle, void const *buffer, size_t len){
 
 	/* If we are writing to an improper index, return error. This can happen
 	 * if O_TRUNC was used on this file since it was oppened to this fhandle */
-	if(file->of_offset > inode->i_size){ 
+	if(file->of_offset > inode->i_size){
 		pthread_rwlock_unlock(file_lock+fhandle);
 		pthread_rwlock_unlock(inode_lock+file->of_inumber);
-		return -1; 
+		return -1;
 	}
 
     size_t total_written = 0;
