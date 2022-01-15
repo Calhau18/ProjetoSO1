@@ -22,15 +22,15 @@ void* mt_safety_reads_writes(void* arguments) {
     for (int i=0; i<args->count; i++) {
         char* temp_buffer = buffer;
 
-        fd = tfs_open(args->path, TFS_O_CREAT); //Open file
+        fd = tfs_open(args->path, TFS_O_CREAT);
         assert(fd != -1);
 
-        r = tfs_write(fd, args->str, sizeof(args->str));//Write 4 bytes
+        r = tfs_write(fd, args->str, sizeof(args->str));
         assert(r==sizeof(args->str));
 
         assert(tfs_close(fd) != -1);
 
-        fd = tfs_open(args->path, 0); //Open file
+        fd = tfs_open(args->path, 0);
         assert(fd != -1);
 
         r = tfs_read(fd, temp_buffer, sizeof(args->str));

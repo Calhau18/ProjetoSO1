@@ -4,6 +4,7 @@
 #include <pthread.h>
 
 #define THREAD_COUNT 100
+#define MAX_DATA_SIZE 10+256*1024
 
 struct arguments {
     int fd;
@@ -42,7 +43,7 @@ int main(int argc, char** argv) {
         args.count = atoi(argv[1]);
     else
         args.count = 0;
-    if (args.size*(size_t)args.count*THREAD_COUNT > 10+256*1024) {
+    if (args.size*(size_t)args.count*THREAD_COUNT > MAX_DATA_SIZE) {
         printf("Input too big! Exiting ...\n");
         return 0;
     }
@@ -52,12 +53,10 @@ int main(int argc, char** argv) {
     args.fd = tfs_open(path, TFS_O_CREAT); //Open file
     assert(args.fd != -1);
 
-    for (size_t i=0; i<args.count*THREAD_COUNT; i++) {
-        ssize_t temp = tfs_write(args.fd, args.str, args.size);
-        assert(temp == args.size);
-        r += temp;
+    for (size_t i=0; i<args.count*THREAD_COUNT; i++) { // Write string a bunch of times to file
+        r = tfs_write(args.fd, args.str, args.size);
+        assert(r == args.size);
     }
-    assert(r == args.size*(size_t)args.count*THREAD_COUNT);
 
     assert(tfs_close(args.fd) != -1);
     
