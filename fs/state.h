@@ -48,6 +48,7 @@ typedef struct {
 
 void state_init();
 void state_destroy();
+void state_destroy_after_all_closed();
 
 int inode_create(inode_type n_type);
 int inode_empty_content(int inumber);

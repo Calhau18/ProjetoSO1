@@ -21,6 +21,9 @@ static allocation_state_t free_blocks[DATA_BLOCKS];
 /* Volatile FS state */
 static open_file_entry_t open_file_table[MAX_OPEN_FILES];
 static allocation_state_t free_open_file_entries[MAX_OPEN_FILES];
+static int open_files = 0;
+
+static bool destroying = false;
 
 static inline bool valid_inumber(int inumber) {
     return inumber >= 0 && inumber < INODE_TABLE_SIZE;
@@ -34,10 +37,15 @@ static inline bool valid_file_handle(int file_handle) {
     return file_handle >= 0 && file_handle < MAX_OPEN_FILES;
 }
 
-static pthread_rwlock_t file_lock[MAX_OPEN_FILES];
+static pthread_mutex_t file_lock[MAX_OPEN_FILES];
 static pthread_rwlock_t inode_lock[INODE_TABLE_SIZE];
-static pthread_rwlock_t inode_creation_lock;
-static pthread_rwlock_t data_block_lock;
+static pthread_mutex_t file_creation_lock;
+static pthread_mutex_t inode_creation_lock;
+static pthread_mutex_t data_block_lock;
+
+static pthread_mutex_t of_number_lock;
+
+static pthread_cond_t no_open_files;
 
 /**
  * We need to defeat the optimizer for the insert_delay() function.
@@ -74,29 +82,40 @@ void state_init() {
         freeinode_ts[i] = FREE;
 		pthread_rwlock_init(inode_lock+i, NULL);
     }
-	pthread_rwlock_init(&inode_creation_lock, NULL);
+	pthread_mutex_init(&inode_creation_lock, NULL);
 
     for (size_t i = 0; i < DATA_BLOCKS; i++) {
         free_blocks[i] = FREE;
     }
-	pthread_rwlock_init(&data_block_lock, NULL);
+	pthread_mutex_init(&data_block_lock, NULL);
 
     for (size_t i = 0; i < MAX_OPEN_FILES; i++) {
         free_open_file_entries[i] = FREE;
-		pthread_rwlock_init(file_lock+i, NULL);
+		pthread_mutex_init(file_lock+i, NULL);
     }
 }
 
 void state_destroy() { 
 	/* Destroy locks */
 	for(int i=0; i<MAX_OPEN_FILES; i++){
-		pthread_rwlock_destroy(file_lock+i);
+		pthread_mutex_destroy(file_lock+i);
 	}
+	pthread_mutex_destroy(&file_creation_lock);
 	for(int i=0; i<INODE_TABLE_SIZE; i++){
 		pthread_rwlock_destroy(inode_lock+i);
 	}
-	pthread_rwlock_destroy(&inode_creation_lock);
-	pthread_rwlock_destroy(&data_block_lock);
+	pthread_mutex_destroy(&inode_creation_lock);
+	pthread_mutex_destroy(&data_block_lock);
+}
+
+void state_destroy_after_all_closed(){
+	destroying = true;
+	pthread_mutex_lock(&file_creation_lock);
+	while(open_files > 0){
+		pthread_cond_wait(&no_open_files, &file_creation_lock);
+	}
+	pthread_mutex_unlock(&file_creation_lock);
+	state_destroy();
 }
 
 /*
@@ -108,7 +127,7 @@ void state_destroy() {
  */
 int inode_create(inode_type n_type) {
 	/* Only one thread shall search for a free entry at a time */
-	pthread_rwlock_wrlock(&inode_creation_lock);
+	pthread_mutex_lock(&inode_creation_lock);
     for (int inumber = 0; inumber < INODE_TABLE_SIZE; inumber++) {
         if ((inumber * (int) sizeof(allocation_state_t) % BLOCK_SIZE) == 0) {
             insert_delay(); // simulate storage access delay (to freeinode_ts)
@@ -123,7 +142,7 @@ int inode_create(inode_type n_type) {
             freeinode_ts[inumber] = TAKEN;
 
 			/* No longer searching for a place for the new inode */
-			pthread_rwlock_unlock(&inode_creation_lock);
+			pthread_mutex_unlock(&inode_creation_lock);
 
             insert_delay(); // simulate storage access delay (to i-node)
             inode_table[inumber].i_node_type = n_type;
@@ -161,7 +180,7 @@ int inode_create(inode_type n_type) {
             return inumber;
         }
     }
-	pthread_rwlock_unlock(&inode_creation_lock);
+	pthread_mutex_unlock(&inode_creation_lock);
     return -1;
 }
 
@@ -347,13 +366,13 @@ int data_block_alloc() {
         }
 
 		// Only one thread at a time shall alloc a data block
-		pthread_rwlock_wrlock(&data_block_lock);
+		pthread_mutex_lock(&data_block_lock);
         if (free_blocks[i] == FREE) {
             free_blocks[i] = TAKEN;
-			pthread_rwlock_unlock(&data_block_lock);
+			pthread_mutex_unlock(&data_block_lock);
             return i;
         }
-		pthread_rwlock_unlock(&data_block_lock);
+		pthread_mutex_unlock(&data_block_lock);
     }
     return -1;
 }
@@ -394,18 +413,24 @@ void *data_block_get(int block_number) {
  * Returns: file handle if successful, -1 otherwise
  */
 int add_to_open_file_table(int inumber, size_t offset) {
+	if(destroying)
+		return -1;
+	pthread_mutex_lock(&file_creation_lock);
     for(int i=0; i<MAX_OPEN_FILES; i++) {
-		pthread_rwlock_wrlock(file_lock+i);
 
         if(free_open_file_entries[i] == FREE){
             free_open_file_entries[i] = TAKEN;
             open_file_table[i].of_inumber = inumber;
             open_file_table[i].of_offset = offset;
+
+			pthread_mutex_lock(&of_number_lock);
+			open_files++;
+			pthread_mutex_unlock(&of_number_lock);
 			
-			pthread_rwlock_unlock(file_lock+i);
+			pthread_mutex_unlock(&file_creation_lock);
             return i;
         }
-		pthread_rwlock_unlock(file_lock+i);
+		pthread_mutex_unlock(&file_creation_lock);
     }
     return -1;
 }
@@ -416,16 +441,27 @@ int add_to_open_file_table(int inumber, size_t offset) {
  * Returns 0 is success, -1 otherwise
  */
 int remove_from_open_file_table(int fhandle) {
+	pthread_mutex_lock(&file_creation_lock);
 	/* Only one thread shall remove the file from the table */
-	pthread_rwlock_wrlock(file_lock+fhandle);
+	pthread_mutex_lock(file_lock+fhandle);
 
     if (!valid_file_handle(fhandle) ||
         free_open_file_entries[fhandle] != TAKEN) {
-		pthread_rwlock_unlock(file_lock+fhandle);
+		pthread_mutex_unlock(file_lock+fhandle);
+		pthread_mutex_unlock(&file_creation_lock);
         return -1;
     }
     free_open_file_entries[fhandle] = FREE;
-	pthread_rwlock_unlock(file_lock+fhandle);
+
+	pthread_mutex_lock(&of_number_lock);
+	open_files--;
+	pthread_mutex_unlock(&of_number_lock);
+
+	if(open_files == 0 && destroying)
+		pthread_cond_signal(&no_open_files);
+
+	pthread_mutex_unlock(file_lock+fhandle);
+	pthread_mutex_unlock(&file_creation_lock);
     return 0;
 }
 
@@ -544,10 +580,10 @@ int file_open(int inum, char const *name, int flags){
  * given by fhandle 
  */
 ssize_t file_write_content(int fhandle, void const *buffer, size_t len){
-	pthread_rwlock_wrlock(file_lock+fhandle);
+	pthread_mutex_lock(file_lock+fhandle);
     open_file_entry_t *file = get_open_file_entry(fhandle);
     if (file == NULL) {
-		pthread_rwlock_unlock(file_lock+fhandle);
+		pthread_mutex_unlock(file_lock+fhandle);
         return -1;
     }
 
@@ -556,7 +592,7 @@ ssize_t file_write_content(int fhandle, void const *buffer, size_t len){
     /* From the open file table entry, we get the inode */
     inode_t *inode = inode_get(file->of_inumber);
     if (inode == NULL) { 
-		pthread_rwlock_unlock(file_lock+fhandle);
+		pthread_mutex_unlock(file_lock+fhandle);
 		pthread_rwlock_unlock(inode_lock+file->of_inumber);
 		return -1; 
 	}
@@ -567,7 +603,7 @@ ssize_t file_write_content(int fhandle, void const *buffer, size_t len){
 	/* If we are writing to an improper index, return error. This can happen
 	 * if O_TRUNC was used on this file since it was oppened to this fhandle */
 	if(file->of_offset > inode->i_size){
-		pthread_rwlock_unlock(file_lock+fhandle);
+		pthread_mutex_unlock(file_lock+fhandle);
 		pthread_rwlock_unlock(inode_lock+file->of_inumber);
 		return -1;
 	}
@@ -581,14 +617,14 @@ ssize_t file_write_content(int fhandle, void const *buffer, size_t len){
 		if(block_number == -2)
 			block_number = (int) inode_alloc_nth_block(inode, starting_block);
 		if(block_number == -1){
-			pthread_rwlock_unlock(file_lock+fhandle);
+			pthread_mutex_unlock(file_lock+fhandle);
 			pthread_rwlock_unlock(inode_lock+file->of_inumber);
 			return -1;
 		}
 
 		void* block = data_block_get(block_number);
 		if(block == NULL){ 
-			pthread_rwlock_unlock(file_lock+fhandle);
+			pthread_mutex_unlock(file_lock+fhandle);
 			pthread_rwlock_unlock(inode_lock+file->of_inumber);
 			return -1;
 		}
@@ -610,7 +646,7 @@ ssize_t file_write_content(int fhandle, void const *buffer, size_t len){
 	if(file->of_offset > inode->i_size)
 		inode->i_size = file->of_offset;
 
-	pthread_rwlock_unlock(file_lock+fhandle);
+	pthread_mutex_unlock(file_lock+fhandle);
 	pthread_rwlock_unlock(inode_lock+file->of_inumber);
 	return (ssize_t)total_written;
 }
@@ -621,11 +657,11 @@ ssize_t file_write_content(int fhandle, void const *buffer, size_t len){
  */
 ssize_t file_read_content(int fhandle, void *buffer, size_t len){
 	/* Only one read is allowed in a open file entry at a time */
-	pthread_rwlock_wrlock(file_lock+fhandle);
+	pthread_mutex_lock(file_lock+fhandle);
 
     open_file_entry_t *file = get_open_file_entry(fhandle);
     if (file == NULL) {
-		pthread_rwlock_unlock(file_lock+fhandle);
+		pthread_mutex_unlock(file_lock+fhandle);
         return -1;
     }
 
@@ -635,7 +671,7 @@ ssize_t file_read_content(int fhandle, void *buffer, size_t len){
     inode_t *inode = inode_get(file->of_inumber);
     if (inode == NULL) {
 		pthread_rwlock_unlock(inode_lock+file->of_inumber);
-		pthread_rwlock_unlock(file_lock+fhandle);
+		pthread_mutex_unlock(file_lock+fhandle);
         return -1;
     }
 
@@ -652,14 +688,14 @@ ssize_t file_read_content(int fhandle, void *buffer, size_t len){
 		int block_number = get_nth_block(inode, starting_block);
 		if(block_number == -1){
 			pthread_rwlock_unlock(inode_lock+file->of_inumber);
-			pthread_rwlock_unlock(file_lock+fhandle);
+			pthread_mutex_unlock(file_lock+fhandle);
 			return -1;
 		}
 
 		void* block = data_block_get(block_number);
 		if(block == NULL){
 			pthread_rwlock_unlock(inode_lock+file->of_inumber);
-			pthread_rwlock_unlock(file_lock+fhandle);
+			pthread_mutex_unlock(file_lock+fhandle);
 			return -1;
 		}
 
@@ -677,6 +713,6 @@ ssize_t file_read_content(int fhandle, void *buffer, size_t len){
 	}
 
 	pthread_rwlock_unlock(inode_lock+file->of_inumber);
-	pthread_rwlock_unlock(file_lock+fhandle);
+	pthread_mutex_unlock(file_lock+fhandle);
 	return (ssize_t)total_read;
 }
