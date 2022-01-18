@@ -42,8 +42,12 @@ int tfs_open(char const *name, int flags) {
         return -1;
     }
 
+	/* Only one file to be oppened at a time */
+	file_open_lock();
     int inum = tfs_lookup(name);
-    return file_open(inum, name, flags);
+    int answer = file_open(inum, name, flags);
+	file_open_unlock();
+	return answer;
 }
 
 int tfs_close(int fhandle) { 

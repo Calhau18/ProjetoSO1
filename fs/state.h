@@ -72,4 +72,7 @@ int file_open(int inum, char const *name, int flags);
 ssize_t file_write_content(int fhandle, void const *buffer, size_t len);
 ssize_t file_read_content(int fhandle, void *buffer, size_t to_read);
 
+void file_open_lock();
+void file_open_unlock();
+
 #endif // STATE_H
