@@ -21,6 +21,11 @@ int tfs_destroy() {
 	return 0;
 }
 
+int tfs_destroy_after_all_closed(){
+	state_destroy_after_all_closed();
+	return 0;
+}
+
 static bool valid_pathname(char const *name) {
     return name != NULL && strlen(name) > 1 && name[0] == '/';
 }

@@ -21,9 +21,9 @@ static allocation_state_t free_blocks[DATA_BLOCKS];
 /* Volatile FS state */
 static open_file_entry_t open_file_table[MAX_OPEN_FILES];
 static allocation_state_t free_open_file_entries[MAX_OPEN_FILES];
-static int open_files = 0;
+static int open_files;
 
-static bool destroying = false;
+static bool destroying;
 
 static inline bool valid_inumber(int inumber) {
     return inumber >= 0 && inumber < INODE_TABLE_SIZE;
@@ -95,6 +95,9 @@ void state_init() {
 		pthread_mutex_init(file_lock+i, NULL);
     }
 	pthread_mutex_init(&fo_lock, NULL);
+
+	destroying = false;
+	open_files = 0;
 }
 
 void state_destroy() { 
@@ -416,8 +419,6 @@ void *data_block_get(int block_number) {
  * Returns: file handle if successful, -1 otherwise
  */
 int add_to_open_file_table(int inumber, size_t offset) {
-	if(destroying)
-		return -1;
 	pthread_mutex_lock(&file_table_lock);
     for(int i=0; i<MAX_OPEN_FILES; i++) {
 
@@ -525,6 +526,8 @@ ssize_t inode_alloc_nth_block(inode_t *inode, size_t n){
 }
 
 int file_open(int inum, char const *name, int flags){
+	if(destroying)
+		return -1;
 	size_t offset = 0;
 
 	if(inum >= 0){
