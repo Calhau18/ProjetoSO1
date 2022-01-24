@@ -115,6 +115,7 @@ void state_destroy() {
 }
 
 void state_destroy_after_all_closed(){
+	// TODO: verificar locks
 	destroying = true;
 	pthread_mutex_lock(&file_table_lock);
 	while(open_files > 0){
