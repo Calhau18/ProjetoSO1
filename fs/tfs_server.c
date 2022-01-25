@@ -16,28 +16,42 @@ pthread_mutex_t session_lock = PTHREAD_MUTEX_INITIALIZER;
 
 int tfs_mount(char const *client_pipe_name){
 	/* Only one client shall mount/unmount at one time */
-	pthread_mutex_lock(&session_lock);
+	if(pthread_mutex_lock(&session_lock) != 0)
+		return -1;
+
 	if(active_sessions[0] == 0){
 		memcpy(active_sessions[0], client_pipe_name, PIPE_NAME_LENGTH);
 	}
-	pthread_mutex_unlock(&session_lock);
+
+	if(pthread_mutex_unlock(&session_lock) != 0)
+		return -1;
 	return 0;
 }
 
 int tfs_unmount(int session_id){
 	/* Only one client shall mount/unmount at one time */
-	pthread_mutex_lock(&session_lock);
+	if(pthread_mutex_lock(&session_lock) != 0)
+		return -1;
+
 	// TODO: change this disgusting shit
 	char * str = "0000000000000000000000000000000000000000";
 	memcpy(active_sessions[session_id], str, PIPE_NAME_LENGTH);
-	pthread_mutex_unlock(&session_lock);
+
+	if(pthread_mutex_unlock(&session_lock) != 0)
+		return -1;
 	return 0;
 }
 
 int process_mount(int fserv){
 	/* get the client pipe name */
 	char client_pipe_name[PIPE_NAME_LENGTH];
-	read(fserv, client_pipe_name, PIPE_NAME_LENGTH*sizeof(char));
+	ssize_t rd = read(fserv, client_pipe_name, PIPE_NAME_LENGTH*sizeof(char));
+	if (rd == 0)
+		// TODO: return what? should we open/close&open?
+		return 0;
+	else if (rd == -1)
+		// TODO: should we use exit(EXIT_FAILURE) or return -1
+		return -1;
 
 	int ret = tfs_mount(client_pipe_name);
 
@@ -47,65 +61,106 @@ int process_mount(int fserv){
 		return -1;
 
 	write(fcli, &ret, sizeof(int));
-	return 0;
+	return ret;
 }
 
 int process_unmount(int session_id, int fcli){
 	int ret = tfs_unmount(session_id);
 	write(fcli, &ret, sizeof(int));
-	return 0;
+	return ret;
 }
 
 int process_open(int fserv, int fcli){
 	char name[PIPE_NAME_LENGTH];
-	read(fserv, name, PIPE_NAME_LENGTH*sizeof(char));
+	ssize_t rd = read(fserv, name, PIPE_NAME_LENGTH*sizeof(char));
+	// TODO
+	if (rd == 0)
+		return 0;
+	else if (rd == -1)
+		return -1;
 
 	int flags;
-	read(fserv, &flags, sizeof(int));
+	rd = read(fserv, &flags, sizeof(int));
+	// TODO
+	if (rd == 0)
+		return 0;
+	else if (rd == -1)
+		return -1;
 
 	int ret = tfs_open(name, flags);
 	write(fcli, &ret, sizeof(int));
-	return 0;
+	return ret;
 }
 
 int process_close(int fserv, int fcli){
 	int fhandle;
-	read(fserv, &fhandle, sizeof(int));
+	ssize_t rd = read(fserv, &fhandle, sizeof(int));
+	// TODO
+	if (rd == 0)
+		return 0;
+	else if (rd == -1)
+		return -1;
 
 	int ret = tfs_close(fhandle);
 	write(fcli, &ret, sizeof(int));
-	return 0;
+	return ret;
 }
 
 int process_write(int fserv, int fcli){
 	int fhandle;
-	read(fserv, &fhandle, sizeof(int));
+	ssize_t rd = read(fserv, &fhandle, sizeof(int));
+	// TODO
+	if (rd == 0)
+		return 0;
+	else if (rd == -1)
+		return -1;
 
 	size_t len;
-	read(fserv, &len, sizeof(size_t));
+	rd = read(fserv, &len, sizeof(size_t));
+	// TODO
+	if (rd == 0)
+		return 0;
+	else if (rd == -1)
+		return -1;
 
 	char content[len];
-	read(fserv, content, len*sizeof(char));
+	rd = read(fserv, content, len*sizeof(char));
+	// TODO
+	if (rd == 0)
+		return 0;
+	else if (rd == -1)
+		return -1;
 
 	int ret = (int) tfs_write(fhandle, content, len);
 	write(fcli, &ret, sizeof(int));
-	return 0;
+	return ret;
 }
 
 int process_read(int fserv, int fcli){
 	int fhandle;
-	read(fserv, &fhandle, sizeof(int));
+	ssize_t rd = read(fserv, &fhandle, sizeof(int));
+	// TODO
+	if (rd == 0)
+		return 0;
+	else if (rd == -1)
+		return -1;
 
 	size_t len;
-	read(fserv, &len, sizeof(size_t));
+	rd = read(fserv, &len, sizeof(size_t));
+	// TODO
+	if (rd == 0)
+		return 0;
+	else if (rd == -1)
+		return -1;
 
 	char buf[len];
 
 	ssize_t ret = tfs_read(fhandle, buf, len);
 	write(fcli, &ret, sizeof(int));
 
-	write(fcli, buf, (size_t)ret*sizeof(char));
-	return 0;
+	if(ret != -1)
+		write(fcli, buf, (size_t)ret*sizeof(char));
+	return ret;
 }
 
 int process_shutdown_aac(int fcli){
@@ -113,29 +168,39 @@ int process_shutdown_aac(int fcli){
 	if(ret == 0)
 		shutdown = 0;
 	write(fcli, &ret, sizeof(int));
-	return 0;
+	return ret;
 }
 
 int process_message(int fserv){
 	/* get op code */
 	char op_code;
-	read(fserv, &op_code, sizeof(char));
+	ssize_t rd = read(fserv, &op_code, sizeof(char));
+	// TODO
+	if (rd == 0)
+		return 0;
+	else if (rd == -1)
+		return -1;
 
 	if(op_code == 1){
 		process_mount(fserv);
 		return 0;
 	}
+	/* else */
 
 	/* get session id */
 	int session_id;
-	read(fserv, &session_id, sizeof(int));
+	rd = read(fserv, &session_id, sizeof(int));
+	// TODO
+	if (rd == 0)
+		return 0;
+	else if (rd == -1)
+		return -1;
 
 	/* open client pipe for write */
 	char const * client_pipe_name = active_sessions[session_id];
 	int fcli = open(client_pipe_name, O_WRONLY);
-	if(fcli == -1){
+	if(fcli == -1)
 		return -1;
-	}
 
 	switch(op_code){
 		// TODO: tentar mudar para os codes como deve ser
@@ -203,3 +268,4 @@ int main(int argc, char **argv) {
 // TODO: check locks/unlocks work
 // TODO: implement thread beahviour for different sessions
 // TODO: o que acontece se o servidor não conseguir abrir o pipe do cliente?
+// TODO: check returns in process_ functions
