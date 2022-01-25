@@ -14,6 +14,7 @@ static bool shutdown;
 
 pthread_mutex_t session_lock = PTHREAD_MUTEX_INITIALIZER;
 
+// TODO: comment
 int tfs_mount(char const *client_pipe_name){
 	/* Only one client shall mount/unmount at one time */
 	if(pthread_mutex_lock(&session_lock) != 0)
@@ -26,16 +27,16 @@ int tfs_mount(char const *client_pipe_name){
 	if(pthread_mutex_unlock(&session_lock) != 0)
 		return -1;
 	return 0;
+	/* return session_id */
 }
 
+// TODO: comment
 int tfs_unmount(int session_id){
 	/* Only one client shall mount/unmount at one time */
 	if(pthread_mutex_lock(&session_lock) != 0)
 		return -1;
 
-	// TODO: change this disgusting shit
-	char * str = "0000000000000000000000000000000000000000";
-	memcpy(active_sessions[session_id], str, PIPE_NAME_LENGTH);
+	memset(active_sessions[session_id], '\0', PIPE_NAME_LENGTH);
 
 	if(pthread_mutex_unlock(&session_lock) != 0)
 		return -1;
@@ -155,7 +156,7 @@ int process_read(int fserv, int fcli){
 
 	char buf[len];
 
-	ssize_t ret = tfs_read(fhandle, buf, len);
+	int ret = (int)tfs_read(fhandle, buf, len);
 	write(fcli, &ret, sizeof(int));
 
 	if(ret != -1)
@@ -204,7 +205,6 @@ int process_message(int fserv){
 
 	switch(op_code){
 		// TODO: tentar mudar para os codes como deve ser
-
 		case 2:
 			process_unmount(session_id, fcli);
 			break;
@@ -244,16 +244,17 @@ int main(int argc, char **argv) {
     char *pipename = argv[1];
     printf("Starting TecnicoFS server with pipe called %s\n", pipename);
 
-	if(tfs_init() == -1)
-		return -1;
-	shutdown = false;
-
+	/* creating server pipe and opening for read */
 	unlink(pipename);
 	if(mkfifo(pipename, 0777) < 0)
 		exit(1);
 
 	int fserv = open(pipename, O_RDONLY);
 	if(fserv < 0) exit(1);
+
+	if(tfs_init() == -1)
+		return -1;
+	shutdown = false;
 
 	while(!shutdown){
 		process_message(fserv);
