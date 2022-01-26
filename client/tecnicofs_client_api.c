@@ -19,7 +19,7 @@ static char s_pipe_path[MSG_SIZE];
 
 int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
 	/* create client pipe */
-    unlink(client_pipe_path); 
+	unlink(client_pipe_path);
     if (mkfifo(client_pipe_path, 0777) < 0) return -1;
     
     strcpy(c_pipe_path, client_pipe_path);
@@ -30,13 +30,15 @@ int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
 		return -1;
 
     char opcode = TFS_OP_CODE_MOUNT;
-    write(fserv, &opcode, sizeof(char));
+    if(write(fserv, &opcode, sizeof(char)) == -1)
+		return -1;
 
     char buf[MSG_SIZE];
     size_t size = strlen(client_pipe_path);
     memcpy(buf, client_pipe_path, size);
 	memset(buf+size, '\0', MSG_SIZE-size);
-    write(fserv, buf, MSG_SIZE); // Send the client_pipe_path to the server
+    if(write(fserv, buf, MSG_SIZE) == -1)
+		return -1;
 
     if (close(fserv) != 0) return -1;
 
@@ -57,12 +59,15 @@ int tfs_unmount() {
 		return -1;
 
     char opcode = TFS_OP_CODE_UNMOUNT;
-    write(fserv, &opcode, sizeof(char));
-    write(fserv, &session_id, sizeof(int));
+    if(write(fserv, &opcode, sizeof(char)) == -1)
+		return -1;
+
+    if(write(fserv, &session_id, sizeof(int)) == -1)
+		return -1;
 
     if (close(fserv) != 0) return -1;
 
-    unlink(c_pipe_path);
+	unlink(c_pipe_path);
     session_id = -1; // Reset the session_id
 
     return 0;
@@ -74,18 +79,21 @@ int tfs_open(char const *name, int flags) {
 		return -1;
 
     char opcode = TFS_OP_CODE_OPEN;
-    write(fserv, &opcode, sizeof(char));
+    if(write(fserv, &opcode, sizeof(char)) == -1)
+		return -1;
 
-    write(fserv, &session_id, sizeof(int));
+    if(write(fserv, &session_id, sizeof(int)) == -1)
+		return -1;
 
     char buf[MSG_SIZE];
-	// TODO
     size_t size = strlen(name);
     memcpy(buf, name, size);
 	memset(buf+size, '\0', MSG_SIZE-size);
-    write(fserv, buf, MSG_SIZE); // Send the opcode, file name and flags to the server
+    if(write(fserv, buf, MSG_SIZE) == -1)
+		return -1;
 
-    write(fserv, &flags, sizeof(int));
+    if(write(fserv, &flags, sizeof(int)) == -1)
+		return -1;
 
     if (close(fserv) != 0) return -1;
 
@@ -94,7 +102,7 @@ int tfs_open(char const *name, int flags) {
 		return -1;
 
     int fhandle;
-    read(fcli, &fhandle, sizeof(int)); // Read the file handle from the client pipe
+    read(fcli, &fhandle, sizeof(int));
 
     if (close(fcli) != 0) return -1;
 
@@ -107,11 +115,14 @@ int tfs_close(int fhandle) {
 		return -1;
 
     char opcode = TFS_OP_CODE_CLOSE;
-    write(fserv, &opcode, sizeof(char));
+    if(write(fserv, &opcode, sizeof(char)) == -1)
+		return -1;
 
-    write(fserv, &session_id, sizeof(int));
+    if(write(fserv, &session_id, sizeof(int)) == -1)
+		return -1;
 
-    write(fserv, &fhandle, sizeof(int));
+    if(write(fserv, &fhandle, sizeof(int)) == -1)
+		return -1;
 
     if (close(fserv) != 0) return -1;
 
@@ -133,15 +144,20 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t len) {
 		return -1;
 
     char opcode = TFS_OP_CODE_WRITE;
-    write(fserv, &opcode, sizeof(char));
+    if(write(fserv, &opcode, sizeof(char)) == -1)
+		return -1;
 
-    write(fserv, &session_id, sizeof(int));
+    if(write(fserv, &session_id, sizeof(int)) == -1)
+		return -1;
     
-	write(fserv, &fhandle, sizeof(int));
+	if(write(fserv, &fhandle, sizeof(int)) == -1)
+		return -1;
     
-	write(fserv, &len, sizeof(size_t));
+	if(write(fserv, &len, sizeof(size_t)) == -1)
+		return -1;
     
-	write(fserv, buffer, len);
+	if(write(fserv, buffer, len) == -1)
+		return -1;
 
     if (close(fserv) != 0) return -1;
 
@@ -163,13 +179,17 @@ ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
 		return -1;
 
     char opcode = TFS_OP_CODE_READ;
-    write(fserv, &opcode, sizeof(char));
+    if(write(fserv, &opcode, sizeof(char)) == -1)
+		return -1;
 
-    write(fserv, &session_id, sizeof(int));
+    if(write(fserv, &session_id, sizeof(int)) == -1)
+		return -1;
     
-	write(fserv, &fhandle, sizeof(int));
+	if(write(fserv, &fhandle, sizeof(int)) == -1)
+		return -1;
     
-	write(fserv, &len, sizeof(size_t));
+	if(write(fserv, &len, sizeof(size_t)) == -1)
+		return -1;
     
 	if (close(fserv) != 0) return -1;
 
@@ -193,9 +213,11 @@ int tfs_shutdown_after_all_closed() {
 		return -1;
 
     char opcode = TFS_OP_CODE_SHUTDOWN_AFTER_ALL_CLOSED;
-    write(fserv, &opcode, sizeof(char));
+    if(write(fserv, &opcode, sizeof(char)) == -1)
+		return -1;
 
-    write(fserv, &session_id, sizeof(int));
+    if(write(fserv, &session_id, sizeof(int)) == -1)
+		return -1;
 
     if (close(fserv) != 0) return -1;
 
@@ -209,9 +231,7 @@ int tfs_shutdown_after_all_closed() {
     if (close(fcli) != 0) return -1;
 
     session_id = -1; // Reset the session_id
-	// TODO: temos de fazer isto?
-    unlink(c_pipe_path); // Delete the client pipe
+	unlink(c_pipe_path);
+
     return ret;
 }
-
-// TODO: podemos assumir que read e write funcionam?
