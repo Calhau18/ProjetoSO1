@@ -5,12 +5,6 @@
 #include <fcntl.h>
 #include <string.h>
 
-// Notes:
-// - Possibly unnecessary session_id check
-// - Possibly unnecessary valid_pathname check
-// - do i need to verify close has succesfully closed?
-// Check the rest of stuff
-
 #define MSG_SIZE 40
 
 static int session_id = -1;
@@ -74,7 +68,8 @@ int tfs_unmount() {
 
 	/* TODO: receber resposta do servidor */
 
-	unlink(c_pipe_path);
+	if(unlink(c_pipe_path) == -1)
+		return -1;
     session_id = -1; // Reset the session_id
 
     return 0;
@@ -258,7 +253,8 @@ int tfs_shutdown_after_all_closed() {
 	/* Answer received */
 
     session_id = -1; // Reset the session_id
-	unlink(c_pipe_path);
+	if(unlink(c_pipe_path) == -1)
+		return -1;
 
     return ret;
 }

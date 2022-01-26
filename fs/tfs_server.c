@@ -70,8 +70,12 @@ int process_mount(int fserv){
 	char client_pipe_name[PIPE_NAME_LENGTH];
 	ssize_t rd = read(fserv, client_pipe_name, PIPE_NAME_LENGTH*sizeof(char));
 	if (rd == 0){
-		// TODO: return what? should we open/close&open?
+		// TODO
 		return 0;
+		/*
+		open(fserv, O_RDONLY);
+		rd = read(fserv, client_pipe_name, PIPE_NAME_LENGTH*sizeof(char));
+		*/
 	}else if (rd == -1){
 		// TODO: should we use exit(EXIT_FAILURE) or return -1
 		return -1;
@@ -271,7 +275,6 @@ int main(int argc, char **argv) {
 
 	/* creating server pipe and opening for read */
 	unlink(pipename);
-
 	if(mkfifo(pipename, 0777) < 0)
 		exit(1);
 
@@ -292,8 +295,7 @@ int main(int argc, char **argv) {
 		return -1;
 
 	/* Destruction process */
-	unlink(pipename);
-
-
+	if(unlink(pipename) == -1)
+		return -1;
     return 0;
 }
