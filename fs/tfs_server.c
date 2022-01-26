@@ -9,6 +9,16 @@
 #define S 1
 #define PIPE_NAME_LENGTH 40
 
+enum {
+    TFS_OP_CODE_MOUNT = 1,
+    TFS_OP_CODE_UNMOUNT = 2,
+    TFS_OP_CODE_OPEN = 3,
+    TFS_OP_CODE_CLOSE = 4,
+    TFS_OP_CODE_WRITE = 5,
+    TFS_OP_CODE_READ = 6,
+    TFS_OP_CODE_SHUTDOWN_AFTER_ALL_CLOSED = 7
+};
+
 static char active_sessions[S][PIPE_NAME_LENGTH];
 static bool shutdown;
 
@@ -202,7 +212,7 @@ int process_message(int fserv){
 	else if (rd == -1)
 		return -1;
 
-	if(op_code == 1){
+	if(op_code == TFS_OP_CODE_MOUNT){
 		return process_mount(fserv);
 	}
 	/* else */
@@ -221,27 +231,27 @@ int process_message(int fserv){
 		return -1;
 
 	switch(op_code){
-		case 2:
+		case TFS_OP_CODE_UNMOUNT:
 			return process_unmount(session_id, fcli);
 			break;
 
-		case 3:
+		case TFS_OP_CODE_OPEN:
 			return process_open(fserv, fcli);
 			break;
 
-		case 4:
+		case TFS_OP_CODE_CLOSE:
 			return process_close(fserv, fcli);
 			break;
 
-		case 5:
+		case TFS_OP_CODE_WRITE:
 			return process_write(fserv, fcli);
 			break;
 		
-		case 6:
+		case TFS_OP_CODE_READ:
 			return process_read(fserv, fcli);
 			break;
 		
-		case 7:
+		case TFS_OP_CODE_SHUTDOWN_AFTER_ALL_CLOSED:
 			return process_shutdown_aac(fcli);
 			break;
 

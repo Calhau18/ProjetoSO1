@@ -25,6 +25,7 @@ int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
     strcpy(c_pipe_path, client_pipe_path);
     strcpy(s_pipe_path, server_pipe_path);
 
+	/* Send request to server */
 	int fserv = open(s_pipe_path, O_WRONLY);
 	if(fserv == -1)
 		return -1;
@@ -41,7 +42,9 @@ int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
 		return -1;
 
     if (close(fserv) != 0) return -1;
+	/* Request sent */
 
+	/* Receive answer from server */
 	int fcli = open(c_pipe_path, O_RDONLY);
     if (fcli == -1) 
 		return -1;
@@ -49,11 +52,13 @@ int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
     read(fcli, &session_id, sizeof(int)); // Read the session_id from client pipe
 
     if (close(fcli) != 0) return -1;
+	/* Answer received */
 
     return 0;
 }
 
 int tfs_unmount() {
+	/* Send request to server */
     int fserv = open(s_pipe_path, O_WRONLY);
 	if(fserv == -1)
 		return -1;
@@ -67,6 +72,8 @@ int tfs_unmount() {
 
     if (close(fserv) != 0) return -1;
 
+	/* TODO: receber resposta do servidor */
+
 	unlink(c_pipe_path);
     session_id = -1; // Reset the session_id
 
@@ -74,6 +81,7 @@ int tfs_unmount() {
 }
 
 int tfs_open(char const *name, int flags) {
+	/* Send request to server */
 	int fserv = open(s_pipe_path, O_WRONLY);
 	if(fserv == -1)
 		return -1;
@@ -96,7 +104,9 @@ int tfs_open(char const *name, int flags) {
 		return -1;
 
     if (close(fserv) != 0) return -1;
+	/* Request sent */
 
+	/* Receive answer from server */
 	int fcli = open(c_pipe_path, O_RDONLY);
 	if(fcli == -1)
 		return -1;
@@ -105,11 +115,13 @@ int tfs_open(char const *name, int flags) {
     read(fcli, &fhandle, sizeof(int));
 
     if (close(fcli) != 0) return -1;
+	/* Answer received */
 
     return fhandle;
 }
 
 int tfs_close(int fhandle) {
+	/* Send request to server */
 	int fserv = open(s_pipe_path, O_WRONLY);
 	if(fserv == -1)
 		return -1;
@@ -125,7 +137,9 @@ int tfs_close(int fhandle) {
 		return -1;
 
     if (close(fserv) != 0) return -1;
+	/* Request sent */
 
+	/* Receive answer from server */
 	int fcli = open(c_pipe_path, O_RDONLY);
 	if(fcli == -1)
 		return -1;
@@ -134,11 +148,13 @@ int tfs_close(int fhandle) {
     read(fcli, &ret, sizeof(int)); // Read the return value from the client pipe
 
     if (close(fcli) != 0) return -1;
+	/* Answer received */
 
     return ret;
 }
 
 ssize_t tfs_write(int fhandle, void const *buffer, size_t len) {
+	/* Send request to server */
 	int fserv = open(s_pipe_path, O_WRONLY);
 	if(fserv == -1)
 		return -1;
@@ -160,7 +176,9 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t len) {
 		return -1;
 
     if (close(fserv) != 0) return -1;
+	/* Request sent */
 
+	/* Receive answer from server */
 	int fcli = open(c_pipe_path, O_RDONLY);
 	if(fcli == -1)
 		return -1;
@@ -169,11 +187,13 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t len) {
     read(fcli, &ret, sizeof(int)); // Read the return value from the client pipe
 
     if (close(fcli) != 0) return -1;
+	/* Answer received */
 
     return ret;
 }
 
 ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
+	/* Send request to server */
 	int fserv = open(s_pipe_path, O_WRONLY);
 	if(fserv == -1)
 		return -1;
@@ -192,7 +212,9 @@ ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
 		return -1;
     
 	if (close(fserv) != 0) return -1;
+	/* Request sent */
 
+	/* Receive answer from server */
 	int fcli = open(c_pipe_path, O_RDONLY);
 	if(fcli == -1)
 		return -1;
@@ -203,11 +225,13 @@ ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
     read(fcli, buffer, len);
 
     if (close(fcli) != 0) return -1;
+	/* Answer received */
 
     return ret;
 }
 
 int tfs_shutdown_after_all_closed() {
+	/* Send request to server */
 	int fserv = open(s_pipe_path, O_WRONLY);
 	if(fserv == -1)
 		return -1;
@@ -220,7 +244,9 @@ int tfs_shutdown_after_all_closed() {
 		return -1;
 
     if (close(fserv) != 0) return -1;
+	/* Request sent */
 
+	/* Receive answer from server */
 	int fcli = open(c_pipe_path, O_RDONLY);
 	if(fcli == -1)
 		return -1;
@@ -229,6 +255,7 @@ int tfs_shutdown_after_all_closed() {
     read(fcli, &ret, sizeof(int)); // Read the return value from the client pipe
 
     if (close(fcli) != 0) return -1;
+	/* Answer received */
 
     session_id = -1; // Reset the session_id
 	unlink(c_pipe_path);
