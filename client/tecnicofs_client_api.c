@@ -4,26 +4,33 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <string.h>
+// TODO remove
+#include <stdio.h>
+
 
 #define MSG_SIZE 40
 
 static int session_id = -1;
 static char c_pipe_path[MSG_SIZE];
 static char s_pipe_path[MSG_SIZE];
+static int fserv, fcli;
 
 int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
 	/* create client pipe */
 	unlink(client_pipe_path);
     if (mkfifo(client_pipe_path, 0777) < 0) return -1;
     
+	memset(c_pipe_path, '\0', MSG_SIZE);
+	memset(s_pipe_path, '\0', MSG_SIZE);
+
     strcpy(c_pipe_path, client_pipe_path);
     strcpy(s_pipe_path, server_pipe_path);
 
-	/* Send request to server */
-	int fserv = open(s_pipe_path, O_WRONLY);
+	fserv = open(s_pipe_path, O_WRONLY);
 	if(fserv == -1)
 		return -1;
 
+	/* Send request to server */
     char opcode = TFS_OP_CODE_MOUNT;
     if(write(fserv, &opcode, sizeof(char)) == -1)
 		return -1;
@@ -34,18 +41,14 @@ int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
 	memset(buf+size, '\0', MSG_SIZE-size);
     if(write(fserv, buf, MSG_SIZE) == -1)
 		return -1;
-
-    if (close(fserv) != 0) return -1;
 	/* Request sent */
 
 	/* Receive answer from server */
-	int fcli = open(c_pipe_path, O_RDONLY);
+	fcli = open(c_pipe_path, O_RDONLY);
     if (fcli == -1) 
 		return -1;
 
-    read(fcli, &session_id, sizeof(int)); // Read the session_id from client pipe
-
-    if (close(fcli) != 0) return -1;
+    read(fcli, &session_id, sizeof(int));
 	/* Answer received */
 
     return 0;
@@ -53,20 +56,21 @@ int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
 
 int tfs_unmount() {
 	/* Send request to server */
-    int fserv = open(s_pipe_path, O_WRONLY);
-	if(fserv == -1)
-		return -1;
-
     char opcode = TFS_OP_CODE_UNMOUNT;
     if(write(fserv, &opcode, sizeof(char)) == -1)
 		return -1;
 
     if(write(fserv, &session_id, sizeof(int)) == -1)
 		return -1;
+	/* Request sent */
+
+	// TODO: check this
+	/* Receive answer from server */
+	int ret;
+	read(fcli, &ret, sizeof(int)); 
 
     if (close(fserv) != 0) return -1;
-
-	/* TODO: receber resposta do servidor */
+	if (close(fcli) != 0) return -1;
 
 	if(unlink(c_pipe_path) == -1)
 		return -1;
@@ -77,10 +81,6 @@ int tfs_unmount() {
 
 int tfs_open(char const *name, int flags) {
 	/* Send request to server */
-	int fserv = open(s_pipe_path, O_WRONLY);
-	if(fserv == -1)
-		return -1;
-
     char opcode = TFS_OP_CODE_OPEN;
     if(write(fserv, &opcode, sizeof(char)) == -1)
 		return -1;
@@ -92,24 +92,16 @@ int tfs_open(char const *name, int flags) {
     size_t size = strlen(name);
     memcpy(buf, name, size);
 	memset(buf+size, '\0', MSG_SIZE-size);
-    if(write(fserv, buf, MSG_SIZE) == -1)
+    if(write(fserv, buf, MSG_SIZE*sizeof(char)) == -1)
 		return -1;
 
     if(write(fserv, &flags, sizeof(int)) == -1)
 		return -1;
-
-    if (close(fserv) != 0) return -1;
 	/* Request sent */
 
 	/* Receive answer from server */
-	int fcli = open(c_pipe_path, O_RDONLY);
-	if(fcli == -1)
-		return -1;
-
     int fhandle;
     read(fcli, &fhandle, sizeof(int));
-
-    if (close(fcli) != 0) return -1;
 	/* Answer received */
 
     return fhandle;
@@ -117,10 +109,6 @@ int tfs_open(char const *name, int flags) {
 
 int tfs_close(int fhandle) {
 	/* Send request to server */
-	int fserv = open(s_pipe_path, O_WRONLY);
-	if(fserv == -1)
-		return -1;
-
     char opcode = TFS_OP_CODE_CLOSE;
     if(write(fserv, &opcode, sizeof(char)) == -1)
 		return -1;
@@ -130,19 +118,11 @@ int tfs_close(int fhandle) {
 
     if(write(fserv, &fhandle, sizeof(int)) == -1)
 		return -1;
-
-    if (close(fserv) != 0) return -1;
 	/* Request sent */
 
 	/* Receive answer from server */
-	int fcli = open(c_pipe_path, O_RDONLY);
-	if(fcli == -1)
-		return -1;
-
     int ret;
-    read(fcli, &ret, sizeof(int)); // Read the return value from the client pipe
-
-    if (close(fcli) != 0) return -1;
+    read(fcli, &ret, sizeof(int));
 	/* Answer received */
 
     return ret;
@@ -150,10 +130,6 @@ int tfs_close(int fhandle) {
 
 ssize_t tfs_write(int fhandle, void const *buffer, size_t len) {
 	/* Send request to server */
-	int fserv = open(s_pipe_path, O_WRONLY);
-	if(fserv == -1)
-		return -1;
-
     char opcode = TFS_OP_CODE_WRITE;
     if(write(fserv, &opcode, sizeof(char)) == -1)
 		return -1;
@@ -169,19 +145,11 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t len) {
     
 	if(write(fserv, buffer, len) == -1)
 		return -1;
-
-    if (close(fserv) != 0) return -1;
 	/* Request sent */
 
 	/* Receive answer from server */
-	int fcli = open(c_pipe_path, O_RDONLY);
-	if(fcli == -1)
-		return -1;
-
     int ret;
     read(fcli, &ret, sizeof(int)); // Read the return value from the client pipe
-
-    if (close(fcli) != 0) return -1;
 	/* Answer received */
 
     return ret;
@@ -189,10 +157,6 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t len) {
 
 ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
 	/* Send request to server */
-	int fserv = open(s_pipe_path, O_WRONLY);
-	if(fserv == -1)
-		return -1;
-
     char opcode = TFS_OP_CODE_READ;
     if(write(fserv, &opcode, sizeof(char)) == -1)
 		return -1;
@@ -205,21 +169,13 @@ ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
     
 	if(write(fserv, &len, sizeof(size_t)) == -1)
 		return -1;
-    
-	if (close(fserv) != 0) return -1;
 	/* Request sent */
 
 	/* Receive answer from server */
-	int fcli = open(c_pipe_path, O_RDONLY);
-	if(fcli == -1)
-		return -1;
-
 	int ret;
 	read(fcli, &ret, sizeof(int));
 
     read(fcli, buffer, len);
-
-    if (close(fcli) != 0) return -1;
 	/* Answer received */
 
     return ret;
@@ -227,29 +183,17 @@ ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
 
 int tfs_shutdown_after_all_closed() {
 	/* Send request to server */
-	int fserv = open(s_pipe_path, O_WRONLY);
-	if(fserv == -1)
-		return -1;
-
     char opcode = TFS_OP_CODE_SHUTDOWN_AFTER_ALL_CLOSED;
     if(write(fserv, &opcode, sizeof(char)) == -1)
 		return -1;
 
     if(write(fserv, &session_id, sizeof(int)) == -1)
 		return -1;
-
-    if (close(fserv) != 0) return -1;
 	/* Request sent */
 
 	/* Receive answer from server */
-	int fcli = open(c_pipe_path, O_RDONLY);
-	if(fcli == -1)
-		return -1;
-
     int ret;
-    read(fcli, &ret, sizeof(int)); // Read the return value from the client pipe
-
-    if (close(fcli) != 0) return -1;
+    read(fcli, &ret, sizeof(int));
 	/* Answer received */
 
     session_id = -1; // Reset the session_id
