@@ -4,9 +4,10 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <string.h>
+#include <limits.h>
+#include <errno.h>
 // TODO remove
 #include <stdio.h>
-
 
 #define MSG_SIZE 40
 
@@ -19,36 +20,32 @@ int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
 	/* create client pipe */
 	unlink(client_pipe_path);
     if (mkfifo(client_pipe_path, 0777) < 0) return -1;
-    
-	memset(c_pipe_path, '\0', MSG_SIZE);
-	memset(s_pipe_path, '\0', MSG_SIZE);
 
-    strcpy(c_pipe_path, client_pipe_path);
+	strcpy(c_pipe_path, client_pipe_path);
     strcpy(s_pipe_path, server_pipe_path);
 
-	fserv = open(s_pipe_path, O_WRONLY);
+	/* Send request to server */
+	fserv = open(server_pipe_path, O_WRONLY);
 	if(fserv == -1)
 		return -1;
 
-	/* Send request to server */
     char opcode = TFS_OP_CODE_MOUNT;
-    if(write(fserv, &opcode, sizeof(char)) == -1)
-		return -1;
+	size_t size = strlen(client_pipe_path);
+    char buf[sizeof(char)+MSG_SIZE];
 
-    char buf[MSG_SIZE];
-    size_t size = strlen(client_pipe_path);
-    memcpy(buf, client_pipe_path, size);
-	memset(buf+size, '\0', MSG_SIZE-size);
-    if(write(fserv, buf, MSG_SIZE) == -1)
+	memcpy(buf, &opcode, sizeof(char));
+    memcpy(buf+sizeof(char), client_pipe_path, size);
+	memset(buf+sizeof(char)+size, '\0', MSG_SIZE-size);
+    if(write(fserv, buf, sizeof(char)+MSG_SIZE*sizeof(char)) == -1 || errno == EPIPE)
 		return -1;
 	/* Request sent */
 
 	/* Receive answer from server */
-	fcli = open(c_pipe_path, O_RDONLY);
+	fcli = open(client_pipe_path, O_RDONLY);
     if (fcli == -1) 
 		return -1;
 
-    read(fcli, &session_id, sizeof(int));
+    read(fcli, &session_id, sizeof(int)); // Read the session_id from client pipe
 	/* Answer received */
 
     return 0;
@@ -57,22 +54,22 @@ int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
 int tfs_unmount() {
 	/* Send request to server */
     char opcode = TFS_OP_CODE_UNMOUNT;
-    if(write(fserv, &opcode, sizeof(char)) == -1)
-		return -1;
+	char buf[sizeof(char)+sizeof(int)];
+	memcpy(buf, &opcode, sizeof(char));
+	memcpy(buf+sizeof(char), &session_id, sizeof(int));
 
-    if(write(fserv, &session_id, sizeof(int)) == -1)
+    if(write(fserv, buf, sizeof(buf)) == -1 || errno == EPIPE)
 		return -1;
 	/* Request sent */
 
-	// TODO: check this
-	/* Receive answer from server */
-	int ret;
-	read(fcli, &ret, sizeof(int)); 
+	/* TODO: receber resposta do servidor */
 
+	/* Destroy session */
     if (close(fserv) != 0) return -1;
+
 	if (close(fcli) != 0) return -1;
 
-	if(unlink(c_pipe_path) == -1)
+	if (unlink(c_pipe_path) == -1)
 		return -1;
     session_id = -1; // Reset the session_id
 
@@ -81,22 +78,20 @@ int tfs_unmount() {
 
 int tfs_open(char const *name, int flags) {
 	/* Send request to server */
+	char buf[sizeof(char)+sizeof(int)+MSG_SIZE*sizeof(char)+sizeof(int)];
+
     char opcode = TFS_OP_CODE_OPEN;
-    if(write(fserv, &opcode, sizeof(char)) == -1)
-		return -1;
+	memcpy(buf, &opcode, sizeof(char));
 
-    if(write(fserv, &session_id, sizeof(int)) == -1)
-		return -1;
+	memcpy(buf+sizeof(char), &session_id, sizeof(int));
 
-    char buf[MSG_SIZE];
     size_t size = strlen(name);
-    memcpy(buf, name, size);
-	memset(buf+size, '\0', MSG_SIZE-size);
-    if(write(fserv, buf, MSG_SIZE*sizeof(char)) == -1)
+    memcpy(buf+sizeof(char)+sizeof(int), name, size);
+	memset(buf+sizeof(char)+sizeof(int)+size, '\0', MSG_SIZE-size);
+	memcpy(buf+sizeof(char)+sizeof(int)+MSG_SIZE*sizeof(char), &flags, sizeof(int));
+    if(write(fserv, buf, sizeof(buf)) == -1 || errno == EPIPE)
 		return -1;
 
-    if(write(fserv, &flags, sizeof(int)) == -1)
-		return -1;
 	/* Request sent */
 
 	/* Receive answer from server */
@@ -109,20 +104,22 @@ int tfs_open(char const *name, int flags) {
 
 int tfs_close(int fhandle) {
 	/* Send request to server */
+	char buf[sizeof(char)+2*sizeof(int)];
     char opcode = TFS_OP_CODE_CLOSE;
-    if(write(fserv, &opcode, sizeof(char)) == -1)
-		return -1;
+	memcpy(buf, &opcode, sizeof(char));
 
-    if(write(fserv, &session_id, sizeof(int)) == -1)
-		return -1;
+	memcpy(buf+sizeof(char), &session_id, sizeof(int));
 
-    if(write(fserv, &fhandle, sizeof(int)) == -1)
+	memcpy(buf+sizeof(char)+sizeof(int), &fhandle, sizeof(int));
+
+    if(write(fserv, buf, sizeof(buf)) == -1 || errno == EPIPE)
 		return -1;
 	/* Request sent */
 
 	/* Receive answer from server */
     int ret;
-    read(fcli, &ret, sizeof(int));
+    read(fcli, &ret, sizeof(int)); // Read the return value from the client pipe
+	
 	/* Answer received */
 
     return ret;
@@ -130,21 +127,22 @@ int tfs_close(int fhandle) {
 
 ssize_t tfs_write(int fhandle, void const *buffer, size_t len) {
 	/* Send request to server */
+	char buf[sizeof(char)+2*sizeof(int)+sizeof(size_t)+len*sizeof(char)];
+
     char opcode = TFS_OP_CODE_WRITE;
-    if(write(fserv, &opcode, sizeof(char)) == -1)
+    memcpy(buf, &opcode, sizeof(char));
+	
+	memcpy(buf+sizeof(char), &session_id, sizeof(int));
+    
+	memcpy(buf+sizeof(char)+sizeof(int), &fhandle, sizeof(int));
+
+	memcpy(buf+sizeof(char)+2*sizeof(int), &len, sizeof(size_t));
+
+	memcpy(buf+sizeof(char)+2*sizeof(int)+sizeof(size_t), buffer, len*sizeof(char));
+
+	if(write(fserv, buf, sizeof(buf)) == -1 || errno == EPIPE)
 		return -1;
 
-    if(write(fserv, &session_id, sizeof(int)) == -1)
-		return -1;
-    
-	if(write(fserv, &fhandle, sizeof(int)) == -1)
-		return -1;
-    
-	if(write(fserv, &len, sizeof(size_t)) == -1)
-		return -1;
-    
-	if(write(fserv, buffer, len) == -1)
-		return -1;
 	/* Request sent */
 
 	/* Receive answer from server */
@@ -157,25 +155,27 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t len) {
 
 ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
 	/* Send request to server */
+	char buf[sizeof(char)+2*sizeof(int)+sizeof(size_t)];
+
     char opcode = TFS_OP_CODE_READ;
-    if(write(fserv, &opcode, sizeof(char)) == -1)
+	memcpy(buf, &opcode, sizeof(char));
+	
+	memcpy(buf+sizeof(char), &session_id, sizeof(int));
+	
+	memcpy(buf+sizeof(char)+sizeof(int), &fhandle, sizeof(int));
+	
+	memcpy(buf+sizeof(char)+2*sizeof(int), &len, sizeof(size_t));
+
+    if(write(fserv, buf, sizeof(buf)) == -1 || errno == EPIPE)
 		return -1;
 
-    if(write(fserv, &session_id, sizeof(int)) == -1)
-		return -1;
-    
-	if(write(fserv, &fhandle, sizeof(int)) == -1)
-		return -1;
-    
-	if(write(fserv, &len, sizeof(size_t)) == -1)
-		return -1;
 	/* Request sent */
 
 	/* Receive answer from server */
 	int ret;
 	read(fcli, &ret, sizeof(int));
 
-    read(fcli, buffer, len);
+    read(fcli, buffer, len); // can we do this too?
 	/* Answer received */
 
     return ret;
@@ -183,21 +183,26 @@ ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
 
 int tfs_shutdown_after_all_closed() {
 	/* Send request to server */
-    char opcode = TFS_OP_CODE_SHUTDOWN_AFTER_ALL_CLOSED;
-    if(write(fserv, &opcode, sizeof(char)) == -1)
-		return -1;
+    char buf[sizeof(char)+sizeof(int)];
+	char opcode = TFS_OP_CODE_SHUTDOWN_AFTER_ALL_CLOSED;
+	memcpy(buf, &opcode, sizeof(char));
 
-    if(write(fserv, &session_id, sizeof(int)) == -1)
+	memcpy(buf+sizeof(char), &session_id, sizeof(int));
+
+    if(write(fserv, buf, sizeof(buf)) == -1 || errno == EPIPE)
 		return -1;
 	/* Request sent */
+	if (close(fserv) != 0) return -1;
 
 	/* Receive answer from server */
     int ret;
-    read(fcli, &ret, sizeof(int));
+    read(fcli, &ret, sizeof(int)); // Read the return value from the client pipe
 	/* Answer received */
 
+	if (close(fcli) != 0) return -1;
+
     session_id = -1; // Reset the session_id
-	if(unlink(c_pipe_path) == -1)
+	if (unlink(c_pipe_path) == -1)
 		return -1;
 
     return ret;
