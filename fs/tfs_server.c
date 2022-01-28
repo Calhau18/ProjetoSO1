@@ -168,8 +168,11 @@ int process_message(int fserv){
 	/* get op code */
 	char op_code;
 	ssize_t rd = read(fserv, &op_code, sizeof(char));
-	if(rd <= 0)
+	if(rd == 0)
+		return 1;
+	else if(rd == -1)
 		return -1;
+	// TODO: pensar se temos de ver se o pipe foi fechado em todos os reads
 
 	if(op_code == TFS_OP_CODE_MOUNT){
 		return process_mount(fserv);
@@ -236,7 +239,8 @@ int main(int argc, char **argv) {
 	shutdown = false;
 
 	while(!shutdown){
-		process_message(fserv);
+		if(process_message(fserv) == 1)
+			open(pipename, O_RDONLY);
 	}
 
 	if(close(fserv) != 0) 
