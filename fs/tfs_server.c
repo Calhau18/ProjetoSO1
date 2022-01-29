@@ -5,9 +5,12 @@
 #include <stdbool.h>
 #include <unistd.h>
 #include <string.h>
+// TODO remove
+#include <stdio.h>
 
-#define S 1
+#define S 5
 #define PIPE_NAME_LENGTH 40
+#define PC_BUFFER_SIZE 5
 
 enum {
     TFS_OP_CODE_MOUNT = 1,
@@ -19,48 +22,165 @@ enum {
     TFS_OP_CODE_SHUTDOWN_AFTER_ALL_CLOSED = 7
 };
 
+typedef struct pc_buffer_t {
+	int cons_index;
+	int prod_index;
+	void * args[PC_BUFFER_SIZE];
+} PC_buffer_t;
+
+typedef struct mount_args {
+	char op_code;
+	char client_pipe_name[PIPE_NAME_LENGTH];
+} Mount_args;
+
+typedef struct unmount_args {
+	char op_code;
+} Unmount_args;
+
 static char active_sessions_name[S][PIPE_NAME_LENGTH];
 static int active_sessions[S];
+PC_buffer_t pc_buffers[S];
+// TODO: check if can be changed
+pthread_t tid[S];
+pthread_cond_t session_conds[S];
+pthread_mutex_t session_locks[S];
 static bool shutdown;
 
+static pthread_mutex_t mount_lock;
+
+int exec_mount(int session_id, char* client_pipe_name);
+int exec_unmount(int session_id);
 /*
- * Activates a session with a client (if it is possible).
- *
- * Returns the session_id where the session is created if successful, 
- * -1 otherwise.
- */
-int tfs_mount(char const *client_pipe_name){
-	/* open client pipe for write */
+int 
+
+// SUSPEITO: tudo isto é suspeito
+void pc_buffer_insert(int session_id, void * arg){
+	PC_buffer_t pc_buf = pc_buffers[session_id];
+	if((pc_buf.cons_index - pc_buf.prod_index + 5) % 5 != 1){
+		pc_buf.args[pc_buf.prod_index] = arg;
+		pc_buf.prod_index = (pc_buf.prod_index + 1) % 5;
+	}
+}
+
+// TODO: check paralelism
+void * pc_buffer_remove(int session_id){
+	PC_buffer_t pc_buf = pc_buffers[session_id];
+	if((pc_buf.cons_index - pc_buf.prod_index + 5) % 5 == 0){
+		void * ret = pc_buf.args[pc_buf.cons_index];
+		pc_buf.cons_index = (pc_buf.cons_index + 1) % 5;
+		return ret;
+	}
+	return NULL;
+}
+
+void * start_routine(void * args){
+	bool ex = false;
+	int session_id = *((int*) args);
+	printf("%d\n", session_id);
+	pthread_mutex_lock(session_locks+session_id);
+	while(!ex){
+		void * arg = pc_buffer_remove(session_id);
+		if(arg == NULL){
+			printf("aaaaaaaaaaaaah\n");
+			return NULL;
+		}
+		char op_code = *((char*) arg);
+		switch(op_code){
+			case TFS_OP_CODE_MOUNT:
+				Mount_args* m_arg = (Mount_args*) arg;
+				exec_mount(session_id, m_arg->client_pipe_name);
+				break;
+			case TFS_OP_CODE_UNMOUNT:
+				exec_unmount(session_id);
+				ex = true;
+				break;
+
+			/*
+			case TFS_OP_CODE_OPEN:
+				exec_open();
+				break;
+
+			case TFS_OP_CODE_CLOSE:
+				exec_close();
+				break;
+
+			case TFS_OP_CODE_WRITE:
+				exec_write();
+				break;
+
+			case TFS_OP_CODE_READ:
+				exec_read();
+				break;
+
+			case TFS_OP_CODE_SHUTDOWN_AFTER_ALL_CLOSED:
+				exec_shutdown_aac();
+				break;
+			*/
+
+			default:
+		}
+
+		pthread_cond_wait(session_conds+session_id, session_locks+session_id);
+	}
+
+	pthread_mutex_unlock(session_locks+session_id);
+	return NULL;
+}
+
+int process_mount(int fserv){
+	Mount_args* arg = (Mount_args*) malloc(sizeof(Mount_args));
+	ssize_t rd = read(fserv, arg->client_pipe_name, PIPE_NAME_LENGTH*sizeof(char));
+	if (rd <= 0)
+		return -1;
+
+	pthread_mutex_lock(&mount_lock);
+
+	for(int i=0; i<S; i++){
+		if(active_sessions[i] == 0){
+			printf("%d\n", i);
+			pc_buffer_insert(i, (void*)arg);
+			pthread_create(tid+i, NULL, start_routine, &i);
+			pthread_mutex_unlock(&mount_lock);
+			return i;
+		}
+	}
+
+	pthread_mutex_unlock(&mount_lock);
+	return -1;
+}
+
+int exec_mount(int session_id, char * client_pipe_name){
+	/* Open client pipe for write */
+	/* The pipe shall remain opened until the session is closed */
 	int fcli = open(client_pipe_name, O_WRONLY);
 	if(fcli == -1)
 		return -1;
 
-	if(active_sessions[0] == 0){
-		active_sessions[0] = fcli;
-		memcpy(active_sessions_name[0], client_pipe_name, PIPE_NAME_LENGTH);
-	}
+	active_sessions[session_id] = fcli;
+	memcpy(active_sessions_name[session_id], client_pipe_name, PIPE_NAME_LENGTH);
+
+	if(write(fcli, &session_id, sizeof(int)) == -1)
+		return -1;
+
 	return 0;
-	/* return session_id */
-}
-
-/* Returns the value of tfs_mount on success, -1 otherwise */
-int process_mount(int fserv){
-	/* get the client pipe name */
-	char client_pipe_name[PIPE_NAME_LENGTH];
-	ssize_t rd = read(fserv, client_pipe_name, PIPE_NAME_LENGTH*sizeof(char));
-	if (rd <= 0)
-		return -1;
-
-	int ret = tfs_mount(client_pipe_name);
-
-	if(write(active_sessions[ret], &ret, sizeof(int)) == -1)
-		return -1;
-
-	return ret;
 }
 
 /* Returns the value of tfs_unmount on success, -1 otherwise */
 int process_unmount(int session_id){
+	Unmount_args* arg = (Unmount_args*)malloc(sizeof(Unmount_args));
+
+	pthread_mutex_lock(&mount_lock);
+
+	/* Check if works */
+	pc_buffer_insert(session_id, (void*)arg);
+	pthread_cond_signal(session_conds+session_id);
+
+	pthread_mutex_unlock(&mount_lock);
+
+	return 0;
+}
+
+int exec_unmount(int session_id){
 	int ret = 0;
 	if(write(active_sessions[session_id], &ret, sizeof(int)) == -1)
 		return -1;
@@ -73,6 +193,7 @@ int process_unmount(int session_id){
 
 	return ret;
 }
+
 
 /* Returns the value of tfs_open on success, -1 otherwise */
 int process_open(int fserv, int session_id){
@@ -123,6 +244,7 @@ int process_write(int fserv, int session_id){
 		return -1;
 
 	int ret = (int) tfs_write(fhandle, content, len);
+
 	if(write(active_sessions[session_id], &ret, sizeof(int)) == -1)
 		return -1;
 	return ret;
@@ -143,6 +265,7 @@ int process_read(int fserv, int session_id){
 	char buf[len];
 
 	int ret = (int)tfs_read(fhandle, buf, len);
+
 	if(write(active_sessions[session_id], &ret, sizeof(int)) == -1)
 		return -1;
 
@@ -231,6 +354,11 @@ int main(int argc, char **argv) {
 
 	int fserv = open(pipename, O_RDONLY);
 	if(fserv < 0) exit(1);
+	
+	for(int i=0; i<S; i++){
+		pthread_mutex_init(session_locks+i, NULL);
+		pthread_cond_init(session_conds+i, NULL);
+	}
 
 	memset(active_sessions_name, '\0', S*PIPE_NAME_LENGTH);
 
