@@ -6,6 +6,8 @@
 #include <string.h>
 #include <limits.h>
 #include <errno.h>
+// TODO remove
+#include <stdio.h>
 
 #define MSG_SIZE 40
 
