@@ -230,15 +230,14 @@ int inode_empty_content(int inumber){
  */
 int inode_delete(int inumber) {
 	/* Nobody change this inode while deleting */
-	pthread_rwlock_wrlock(inode_lock+inumber);
     insert_delay();
     insert_delay();
 
     if (!valid_inumber(inumber) || freeinode_ts[inumber] == FREE) {
-		pthread_rwlock_unlock(inode_lock+inumber);
         return -1;
     }
 
+	pthread_rwlock_wrlock(inode_lock+inumber);
 	/* Free the blocks allocated by the inode */
 	if(inode_empty_content(inumber) == -1){
 		pthread_rwlock_unlock(inode_lock+inumber);
@@ -395,7 +394,9 @@ int data_block_free(int block_number) {
     }
 
     insert_delay(); // simulate storage access delay to free_blocks
+	pthread_mutex_lock(&data_block_lock);
     free_blocks[block_number] = FREE;
+	pthread_mutex_unlock(&data_block_lock);
     return 0;
 }
 
