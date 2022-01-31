@@ -53,6 +53,7 @@ void * start_routine(void * args){
 			case TFS_OP_CODE_MOUNT:
 				Mount_args* m_arg = (Mount_args*) arg;
 				exec_mount(session_id, m_arg->client_pipe_name);
+				free(m_arg);
 				break;
 
 			case TFS_OP_CODE_UNMOUNT:
@@ -63,21 +64,26 @@ void * start_routine(void * args){
 			case TFS_OP_CODE_OPEN:
 				Open_args* o_arg = (Open_args*) arg;
 				exec_open(session_id, o_arg->name, o_arg->flags);
+				free(o_arg);
 				break;
 
 			case TFS_OP_CODE_CLOSE:
 				Close_args* c_arg = (Close_args*) arg;
 				exec_close(session_id, c_arg->fhandle);
+				free(c_arg);
 				break;
 
 			case TFS_OP_CODE_WRITE:
 				Write_args* w_arg = (Write_args*) arg;
 				exec_write(session_id, w_arg->fhandle, w_arg->len, w_arg->buffer);
+				free(w_arg->buffer);
+				free(w_arg);
 				break;
 
 			case TFS_OP_CODE_READ:
 				Read_args* r_arg = (Read_args*) arg;
 				exec_read(session_id, r_arg->fhandle, r_arg->len);
+				free(r_arg);
 				break;
 
 			case TFS_OP_CODE_SHUTDOWN_AFTER_ALL_CLOSED:
