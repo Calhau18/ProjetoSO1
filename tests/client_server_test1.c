@@ -9,7 +9,7 @@
     communicate with the server and compare the results.
 */
 
-#define MAX_CLIENTS 10 // Just making 10 clients to have single char distinction
+#define MAX_CLIENTS 4 // Just making 10 clients to have single char distinction
 
 int fair(char* client_path, char* server_path) {
     char *str = "AAA!";
