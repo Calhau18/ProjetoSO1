@@ -62,6 +62,7 @@ int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
     if(read(fcli, &session_id, sizeof(int)) <= 0)
 		return -1;
 	/* Answer received */
+	printf("Client received %d while mounting\n", session_id);
 
     return 0;
 }
@@ -85,6 +86,7 @@ int tfs_unmount() {
 	if(read(fcli, &ret, sizeof(int)) <= 0)
 		return -1;
 
+	printf("Client received %d while unmounting\n", ret);
     return destroy_session();
 }
 
@@ -115,6 +117,7 @@ int tfs_open(char const *name, int flags) {
     if(read(fcli, &fhandle, sizeof(int)) <= 0)
 		return -1;
 	/* Answer received */
+	printf("Client received %d while opening\n", fhandle);
 
     return fhandle;
 }
@@ -142,6 +145,7 @@ int tfs_close(int fhandle) {
     if(read(fcli, &ret, sizeof(int)) <= 0)
 		return -1;
 	/* Answer received */
+	printf("Client received %d while closing\n", ret);
 
     return ret;
 }
@@ -175,6 +179,7 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t len) {
     if(read(fcli, &ret, sizeof(int)) <= 0)
 		return -1;
 	/* Answer received */
+	printf("Client received %d while writting\n", ret);
 
     return ret;
 }
@@ -205,10 +210,12 @@ ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
 	int ret;
 	if(read(fcli, &ret, sizeof(int)) <= 0)
 		return -1;
+	printf("Client received %d while reading\n", ret);
 
-    if(read(fcli, buffer, len) <= 0) // can we do this too?
+    if(read(fcli, buffer, (size_t)ret) <= 0) // can we do this too?
 		return -1;
 	/* Answer received */
+	printf("Message read was \"%s\"\n", (char*)buffer);
 
     return ret;
 }
@@ -235,6 +242,7 @@ int tfs_shutdown_after_all_closed() {
     if(read(fcli, &ret, sizeof(int)) <= 0)
 		return -1;
 	/* Answer received */
+	printf("Client received %d while shutting down\n", ret);
 
 	if (close(fcli) != 0) return -1;
 
