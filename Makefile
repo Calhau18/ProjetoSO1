@@ -14,14 +14,14 @@ INCLUDES = $(addprefix -I, $(INCLUDE_DIRS))
 SOURCES  := $(wildcard */*.c)
 HEADERS  := $(wildcard */*.h)
 OBJECTS  := $(SOURCES:.c=.o)
-TARGET_EXECS := tests/test1 tests/copy_to_external_simple tests/copy_to_external_errors tests/write_10_blocks_spill tests/write_10_blocks_simple tests/write_more_than_10_blocks_simple tests/mt_test1 tests/mt_test2 tests/mt_test3 tests/lib_destroy_after_all_closed_test fs/tfs_server tests/client_server_simple_test tests/client_server_simple_multiclient_test tests/client_server_test1 tests/client_server_shutdown_test
+TARGET_EXECS := fs/tfs_server tests/lib_destroy_after_all_closed_test tests/client_server_simple_test tests/client_server_shutdown_test tests/client_server_simple_multiclient_test tests/client_server_test1
 
 # VPATH is a variable used by Makefile which finds *sources* and makes them available throughout the codebase
 # vpath %.h <DIR> tells make to look for header files in <DIR>
 vpath # clears VPATH
 vpath %.h $(INCLUDE_DIRS)
 
-CFLAGS = -std=c11 -D_POSIX_C_SOURCE=200809L 
+CFLAGS = -std=c11 -D_POSIX_C_SOURCE=200809L
 CFLAGS += $(INCLUDES)
 
 # Warnings
@@ -41,9 +41,8 @@ else
   CFLAGS += -O3
 endif
 
-# pthread support
-CFLAGS += -pthread
-LDFLAGS = -pthread
+CFLAGS += -pthread -fsanitize=thread
+LDFLAGS = -pthread -fsanitize=thread
 
 # A phony target is one that is not really the name of a file
 # https://www.gnu.org/software/make/manual/html_node/Phony-Targets.html
@@ -68,21 +67,12 @@ fmt: $(SOURCES) $(HEADERS)
 # Note the lack of a rule.
 # make uses a set of default rules, one of which compiles C binaries
 # the CC, LD, CFLAGS and LDFLAGS are used in this rule
-tests/test1: tests/test1.o fs/operations.o fs/state.o
-tests/copy_to_external_errors: tests/copy_to_external_errors.o fs/operations.o fs/state.o
-tests/copy_to_external_simple: tests/copy_to_external_simple.o fs/operations.o fs/state.o
-tests/write_10_blocks_spill: tests/write_10_blocks_spill.o fs/operations.o fs/state.o
-tests/write_10_blocks_simple: tests/write_10_blocks_simple.o fs/operations.o fs/state.o
-tests/write_more_than_10_blocks_simple: tests/write_more_than_10_blocks_simple.o fs/operations.o fs/state.o
-tests/mt_test1:	tests/mt_test1.o fs/operations.o fs/state.o
-tests/mt_test2:	tests/mt_test2.o fs/operations.o fs/state.o
-tests/mt_test3:	tests/mt_test3.o fs/operations.o fs/state.o
-tests/lib_destroy_after_all_closed_test: tests/lib_destroy_after_all_closed_test.o fs/operations.o fs/state.o
 tests/client_server_simple_test: tests/client_server_simple_test.o client/tecnicofs_client_api.o
+fs/tfs_server: fs/operations.o fs/state.o
+tests/lib_destroy_after_all_closed_test: fs/operations.o fs/state.o
+tests/client_server_shutdown_test: tests/client_server_shutdown_test.o client/tecnicofs_client_api.o
 tests/client_server_simple_multiclient_test: tests/client_server_simple_multiclient_test.o client/tecnicofs_client_api.o
 tests/client_server_test1: tests/client_server_test1.o client/tecnicofs_client_api.o
-tests/client_server_shutdown_test: tests/client_server_shutdown_test.o client/tecnicofs_client_api.o
-fs/tfs_server: fs/operations.o fs/state.o
 
 clean:
 	rm -f $(OBJECTS) $(TARGET_EXECS)

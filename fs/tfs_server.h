@@ -16,16 +16,6 @@
 #define FILE_NAME_LENGTH 40
 #define PC_BUF_SIZE 5
 
-enum {
-    TFS_OP_CODE_MOUNT = 1,
-    TFS_OP_CODE_UNMOUNT = 2,
-    TFS_OP_CODE_OPEN = 3,
-    TFS_OP_CODE_CLOSE = 4,
-    TFS_OP_CODE_WRITE = 5,
-    TFS_OP_CODE_READ = 6,
-    TFS_OP_CODE_SHUTDOWN_AFTER_ALL_CLOSED = 7
-};
-
 /* Operation_args struct definitions */
 
 typedef struct mount_args {
@@ -77,6 +67,7 @@ typedef struct session {
 	pthread_t thread_id;
 	pthread_cond_t cond_var;
 	pthread_mutex_t lock;
+	pthread_mutex_t pc_buf_lock;
 } Session;
 
 Session sessions[S];

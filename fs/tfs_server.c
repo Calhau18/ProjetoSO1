@@ -1,6 +1,6 @@
+#include <pthread.h>
+#include <time.h>
 #include "tfs_server.h"
-
-static pthread_mutex_t pc_buf_lock[S];
 
 void printf_pc_buf(PC_buffer_t * pc_buf){
 	printf("[");
@@ -29,11 +29,13 @@ bool pc_buffer_is_empty(PC_buffer_t * pc_buf){
 }
 
 void pc_buffer_insert(int session_id, void * arg){
-	pthread_mutex_lock(pc_buf_lock+session_id);
+	pthread_mutex_lock(&sessions[session_id].pc_buf_lock);
 	PC_buffer_t * pc_buf = &(sessions[session_id].pc_buffer);
-	if(pc_buf == NULL)
+	if(pc_buf == NULL) {
+		printf("pc_buf is NULL\n"); 
 		return;
-
+	}
+	
 	/*
 	printf("[Main] Inserting in PC buffer associated with session %d.\n", session_id);
 	printf_pc_buf(pc_buf);
@@ -42,15 +44,15 @@ void pc_buffer_insert(int session_id, void * arg){
 	if(!pc_buffer_is_full(pc_buf)){
 		pc_buf->args[pc_buf->prod_ind] = arg;
 		pc_buf->prod_ind = (pc_buf->prod_ind + 1) % PC_BUF_SIZE;
-		pthread_mutex_unlock(pc_buf_lock+session_id);
+		pthread_mutex_unlock(&sessions[session_id].pc_buf_lock);
 		return;
 	}
-	pthread_mutex_unlock(pc_buf_lock+session_id);
+	pthread_mutex_unlock(&sessions[session_id].pc_buf_lock);
 	printf("[Main] !!! Cannot insert in PC_buffer associated with session %d\n", session_id);
 }
 
 void * pc_buffer_remove(int session_id){
-	pthread_mutex_lock(pc_buf_lock+session_id);
+	pthread_mutex_lock(&sessions[session_id].pc_buf_lock);
 	PC_buffer_t * pc_buf = &(sessions[session_id].pc_buffer);
 	if(pc_buf == NULL)
 		return NULL;
@@ -64,11 +66,11 @@ void * pc_buffer_remove(int session_id){
 		void * ret = pc_buf->args[pc_buf->cons_ind];
 		pc_buf->args[pc_buf->cons_ind] = NULL;
 		pc_buf->cons_ind = (pc_buf->cons_ind + 1) % PC_BUF_SIZE;
-		pthread_mutex_unlock(pc_buf_lock+session_id);
+		pthread_mutex_unlock(&sessions[session_id].pc_buf_lock);
 		return ret;
 	}
 
-	pthread_mutex_unlock(pc_buf_lock+session_id);
+	pthread_mutex_unlock(&sessions[session_id].pc_buf_lock);
 	printf("[Worker%d] !!! Cannot remove from PC_buffer.\n", session_id);
 	return NULL;
 }
@@ -144,11 +146,12 @@ void * start_routine(void * args){
 				return NULL;
 		}
 
+		pthread_mutex_lock(&sessions[session_id].pc_buf_lock);
 		while(pc_buffer_is_empty(&sessions[session_id].pc_buffer) && !ex){
 			printf("[Worker%d] Waiting for activity.\n", session_id);
-			pthread_cond_wait(&sessions[session_id].cond_var, &sessions[session_id].lock);
+			pthread_cond_wait(&sessions[session_id].cond_var, &sessions[session_id].pc_buf_lock);
 		}
-		printf("[Worker%d] Going back to work.\n", session_id);
+		pthread_mutex_unlock(&sessions[session_id].pc_buf_lock);
 	}
 
 	printf("[Worker%d] Exiting start_routine.\n", session_id);
@@ -378,10 +381,13 @@ int process_message(int fserv){
 
 	/* get op code */
 	char op_code;
+	/*struct timespec tim, tim2;
+   	tim.tv_sec = 0;
+   	tim.tv_nsec = 100000000L;
+	nanosleep(&tim , &tim2);*/
 	ssize_t rd = read(fserv, &op_code, 1);
 	if(rd == 0){
 		return 1;
-		printf("[Main] Pipe reopening not working\n");
 	}else if(rd == -1){
 		return -1;
 		printf("[Main] Ardeu\n");
@@ -439,7 +445,7 @@ void sessions_init(){
 		}
 		pthread_mutex_init(&sessions[i].lock, NULL);
 		pthread_cond_init(&sessions[i].cond_var, NULL);
-		pthread_mutex_init(pc_buf_lock+i, NULL);
+		pthread_mutex_init(&sessions[i].pc_buf_lock, NULL); // sessions[i].pc_buf_lock
 	}
 }
 
@@ -466,8 +472,10 @@ int main(int argc, char **argv) {
 	shutdown = false;
 
 	while(!shutdown){
-		if(process_message(fserv) == 1)
+		if(process_message(fserv) == 1) {
+			printf("RESETTING THE PIPE!\n");
 			open(pipename, O_RDONLY);
+		}
 	}
 
 	if(close(fserv) != 0) 
