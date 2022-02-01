@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/types.h>
+#include <pthread.h>
 
 /*
  * Directory entry
@@ -23,7 +24,7 @@ typedef enum { T_FILE, T_DIRECTORY } inode_type;
 typedef struct {
     inode_type i_node_type;
     size_t i_size;
-    int i_data_block;
+    int i_data_blocks[11];
     /* in a real FS, more fields would exist here */
 } inode_t;
 
@@ -41,8 +42,10 @@ typedef struct {
 
 void state_init();
 void state_destroy();
+void state_destroy_after_all_closed();
 
 int inode_create(inode_type n_type);
+int inode_empty_content(int inumber);
 int inode_delete(int inumber);
 inode_t *inode_get(int inumber);
 
@@ -57,5 +60,13 @@ void *data_block_get(int block_number);
 int add_to_open_file_table(int inumber, size_t offset);
 int remove_from_open_file_table(int fhandle);
 open_file_entry_t *get_open_file_entry(int fhandle);
+
+int file_create(char const *name);
+int file_open(int inum, char const *name, int flags);
+ssize_t file_write_content(int fhandle, void const *buffer, size_t len);
+ssize_t file_read_content(int fhandle, void *buffer, size_t to_read);
+
+void file_open_lock();
+void file_open_unlock();
 
 #endif // STATE_H
