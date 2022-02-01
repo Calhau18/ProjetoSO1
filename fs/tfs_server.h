@@ -11,7 +11,7 @@
 // TODO remove
 #include <stdio.h>
 
-#define S 5
+#define S 20
 #define PIPE_NAME_LENGTH 40
 #define FILE_NAME_LENGTH 40
 #define PC_BUF_SIZE 5
@@ -25,12 +25,6 @@ enum {
     TFS_OP_CODE_READ = 6,
     TFS_OP_CODE_SHUTDOWN_AFTER_ALL_CLOSED = 7
 };
-
-typedef struct pc_buffer_t {
-	int cons_index;
-	int prod_index;
-	void * args[PC_BUF_SIZE];
-} PC_buffer_t;
 
 /* Operation_args struct definitions */
 
@@ -71,13 +65,22 @@ typedef struct shutdown_aac_args {
 	char op_code;
 } Shutdown_aac_args;
 
-static char active_sessions_name[S][PIPE_NAME_LENGTH];
-static int active_sessions[S];
-PC_buffer_t pc_buffers[S];
-pthread_t tid[S];
-// TODO: check if can be changed
-pthread_cond_t session_conds[S];
-pthread_mutex_t session_locks[S];
+typedef struct pc_buffer_t {
+	int cons_ind;
+	int prod_ind;
+	void * args[PC_BUF_SIZE];
+} PC_buffer_t;
+
+typedef struct session {
+	int file_desc;
+	PC_buffer_t pc_buffer;
+	pthread_t thread_id;
+	pthread_cond_t cond_var;
+	pthread_mutex_t lock;
+} Session;
+
+Session sessions[S];
+
 static bool shutdown;
 
 static pthread_mutex_t mount_lock;
