@@ -2,24 +2,6 @@
 #include <time.h>
 #include "tfs_server.h"
 
-void printf_pc_buf(PC_buffer_t * pc_buf){
-	printf("[");
-	for(int i=0; i<PC_BUF_SIZE; i++){
-		pc_buf->args[i] == NULL ? printf(".") : printf("X");
-	} printf("]\n ");
-	for(int i=0; i<PC_BUF_SIZE; i++){
-		if(pc_buf->prod_ind == i && pc_buf->cons_ind == i){
-			printf("x");
-		}else if(pc_buf->prod_ind == i){
-			printf("p");
-		}else if(pc_buf->cons_ind == i){
-			printf("c");
-		}else{
-			printf(" ");
-		}
-	} printf("\n");
-}
-
 bool pc_buffer_is_full(PC_buffer_t * pc_buf){
 	return (pc_buf->cons_ind-pc_buf->prod_ind+PC_BUF_SIZE) % PC_BUF_SIZE == 1;
 }
@@ -167,22 +149,22 @@ int process_mount(int fserv){
 	if (rd <= 0)
 		return -1;
 
-	pthread_mutex_lock(&mount_lock);
-
+	pthread_mutex_lock(&sessions_lock);
 	for(int i=0; i<S; i++){
 		if(sessions[i].file_desc == 0){
 			sessions[i].file_desc = -1;
+			pthread_mutex_unlock(&sessions_lock);
+
 			printf("[Main] Calling pc_buffer_insert while mounting session %d\n", i);
 			pc_buffer_insert(i, arg);
 			int* x = (int*)malloc(sizeof(int)); *x = i;
 			pthread_create(&sessions[i].thread_id, NULL, start_routine, x);
 
-			pthread_mutex_unlock(&mount_lock);
 			return i;
 		}
 	}
 
-	pthread_mutex_unlock(&mount_lock);
+	pthread_mutex_unlock(&sessions_lock);
 	return -1;
 }
 
@@ -193,7 +175,9 @@ int exec_mount(int session_id, char * client_pipe_name){
 	if(fcli == -1)
 		return -1;
 
+	pthread_mutex_lock(&sessions_lock);
 	sessions[session_id].file_desc = fcli;
+	pthread_mutex_unlock(&sessions_lock);
 
 	if(write(fcli, &session_id, sizeof(int)) == -1)
 		return -1;
@@ -206,14 +190,10 @@ int process_unmount(int session_id){
 	Unmount_args* arg = (Unmount_args*)malloc(sizeof(Unmount_args));
 	arg->op_code = TFS_OP_CODE_UNMOUNT;
 
-	pthread_mutex_lock(&mount_lock);
-
 	/* Check if works */
 	printf("[Main] Calling pc_buffer_insert while unmounting session %d\n", session_id);
 	pc_buffer_insert(session_id, arg);
 	pthread_cond_signal(&sessions[session_id].cond_var);
-
-	pthread_mutex_unlock(&mount_lock);
 
 	return 0;
 }
