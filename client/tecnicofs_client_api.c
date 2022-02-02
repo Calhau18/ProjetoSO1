@@ -9,13 +9,6 @@
 // TODO remove
 #include <stdio.h>
 
-#define MSG_SIZE 40
-
-static int session_id = -1;
-static char c_pipe_path[MSG_SIZE];
-static char s_pipe_path[MSG_SIZE];
-static int fserv, fcli;
-
 int destroy_session(){
     if (close(fserv) != 0) return -1;
 	if (close(fcli) != 0) return -1;
@@ -41,14 +34,14 @@ int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
 
     char opcode = TFS_OP_CODE_MOUNT;
 	size_t size = strlen(client_pipe_path);
-    char buf[1+MSG_SIZE];
+    char buf[1+PIPE_NAME_LENGTH];
 	if(sizeof(buf) >= PIPE_BUF)
 		return -1;
 
 	memcpy(buf, &opcode, 1);
     memcpy(buf+1, client_pipe_path, size);
-	memset(buf+1+size, '\0', MSG_SIZE-size);
-    if(write(fserv, buf, 1+MSG_SIZE) == -1)
+	memset(buf+1+size, '\0', PIPE_NAME_LENGTH-size);
+    if(write(fserv, buf, 1+PIPE_NAME_LENGTH) == -1)
 		return -1;
 	if(errno == EPIPE)
 		return destroy_session();
@@ -91,7 +84,7 @@ int tfs_unmount() {
 int tfs_open(char const *name, int flags) {
 	ssize_t written = -1;
 	/* Send request to server */
-	char buf[1+sizeof(int)+MSG_SIZE+sizeof(int)];
+	char buf[1+sizeof(int)+FILE_NAME_LENGTH+sizeof(int)];
 	if(sizeof(buf) >= PIPE_BUF)
 		return -1;
 
@@ -102,8 +95,8 @@ int tfs_open(char const *name, int flags) {
 
     size_t size = strlen(name);
     memcpy(buf+1+sizeof(int), name, size);
-	memset(buf+1+sizeof(int)+size, '\0', MSG_SIZE-size);
-	memcpy(buf+1+sizeof(int)+MSG_SIZE, &flags, sizeof(int));
+	memset(buf+1+sizeof(int)+size, '\0', FILE_NAME_LENGTH-size);
+	memcpy(buf+1+sizeof(int)+FILE_NAME_LENGTH, &flags, sizeof(int));
 	written = write(fserv, buf, sizeof(buf));
     if(written == -1)
 		return -1;

@@ -1,7 +1,6 @@
 #ifndef OPERATIONS_H
 #define OPERATIONS_H
 
-#include "common/common.h"
 #include "config.h"
 #include "state.h"
 #include <sys/types.h>

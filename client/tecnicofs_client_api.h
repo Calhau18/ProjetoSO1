@@ -4,6 +4,19 @@
 #include "common/common.h"
 #include <sys/types.h>
 
+/* tfs_open flags */
+enum {
+    TFS_O_CREAT = 0b001,
+    TFS_O_TRUNC = 0b010,
+    TFS_O_APPEND = 0b100,
+};
+
+/* client session data */
+static int session_id = -1;
+static char c_pipe_path[PIPE_NAME_LENGTH];
+static char s_pipe_path[PIPE_NAME_LENGTH];
+static int fserv, fcli;
+
 /*
  * Establishes a session with a TecnicoFS server.
  * Input:

@@ -2,6 +2,7 @@
 #define TFS_SERVER_H
 
 #include "operations.h"
+#include "common/common.h"
 
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -12,8 +13,6 @@
 #include <stdio.h>
 
 #define S 20
-#define PIPE_NAME_LENGTH 40
-#define FILE_NAME_LENGTH 40
 #define PC_BUF_SIZE 5
 
 /* Operation_args struct definitions */
@@ -73,7 +72,6 @@ typedef struct session {
 Session sessions[S];
 
 static bool shutdown;
-
 static pthread_mutex_t sessions_lock;
 
 int exec_mount(int session_id, char* client_pipe_name);
