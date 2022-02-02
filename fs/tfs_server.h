@@ -77,7 +77,6 @@ typedef struct session {
 
 Session sessions[S];
 
-static bool shutdown;
 static pthread_mutex_t sessions_lock;
 
 int exec_mount(int session_id, char* client_pipe_name);

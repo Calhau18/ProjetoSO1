@@ -1,5 +1,4 @@
 #include <pthread.h>
-#include <time.h>
 #include "tfs_server.h"
 
 bool valid_session_id(int session_id){
