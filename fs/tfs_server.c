@@ -2,10 +2,16 @@
 #include <time.h>
 #include "tfs_server.h"
 
+bool valid_session_id(int session_id){
+	return session_id >= 0 && session_id < S;
+}
+
+/* Should be locked from the outside */
 bool pc_buffer_is_full(PC_buffer_t * pc_buf){
 	return (pc_buf->cons_ind-pc_buf->prod_ind+PC_BUF_SIZE) % PC_BUF_SIZE == 1;
 }
 
+/* Should be locked from the outside */
 bool pc_buffer_is_empty(PC_buffer_t * pc_buf){
 	return pc_buf->cons_ind == pc_buf->prod_ind;
 }
@@ -15,7 +21,6 @@ void pc_buffer_insert(int session_id, void * arg){
 
 	PC_buffer_t * pc_buf = &(sessions[session_id].pc_buffer);
 	if(pc_buf == NULL) {
-		printf("pc_buf is NULL\n"); 
 		pthread_mutex_unlock(&sessions[session_id].lock);
 		return;
 	}
@@ -29,7 +34,6 @@ void pc_buffer_insert(int session_id, void * arg){
 	}
 
 	pthread_mutex_unlock(&sessions[session_id].lock);
-	printf("[Main] !!! Cannot insert in PC_buffer associated with session %d\n", session_id);
 }
 
 void * pc_buffer_remove(int session_id){
@@ -51,30 +55,22 @@ void * pc_buffer_remove(int session_id){
 	}
 
 	pthread_mutex_unlock(&sessions[session_id].lock);
-	printf("[Worker%d] !!! Cannot remove from PC_buffer.\n", session_id);
 	return NULL;
 }
 
 
 void * start_routine(void * args){
 	bool ex = false;
+
 	int session_id = *((int*) args);
 	free(args);
-	if(session_id < 0 || session_id >= S){
-		printf("Did not receive valid session id\n");
-		return NULL;
-	}
 
 	while(!ex){
 		void * arg = pc_buffer_remove(session_id);
-		if(arg == NULL){ 
+		if(arg == NULL)
 			return NULL;
-			printf("Removed NULL from PC_buffer\n");
-		}
 
 		char op_code = *((char*) arg);
-		printf("[Worker%d] Running operation %d.\n", session_id, op_code);
-
 		switch(op_code){
 			case TFS_OP_CODE_MOUNT:
 				Mount_args* m_arg = (Mount_args*) arg;
@@ -119,19 +115,17 @@ void * start_routine(void * args){
 				break;
 
 			default:
-				printf("Did not read a legitimate op_code\n");
 				return NULL;
 		}
 
+		/* Wait for new request from client */
 		pthread_mutex_lock(&sessions[session_id].lock);
 		while(pc_buffer_is_empty(&sessions[session_id].pc_buffer) && !ex){
-			printf("[Worker%d] Waiting for activity.\n", session_id);
 			pthread_cond_wait(&sessions[session_id].cond_var, &sessions[session_id].lock);
 		}
 		pthread_mutex_unlock(&sessions[session_id].lock);
 	}
 
-	printf("[Worker%d] Exiting start_routine.\n", session_id);
 	return NULL;
 }
 
@@ -149,7 +143,6 @@ int process_mount(int fserv){
 			sessions[i].file_desc = -1;
 			pthread_mutex_unlock(&sessions_lock);
 
-			printf("[Main] Calling pc_buffer_insert while mounting session %d\n", i);
 			pc_buffer_insert(i, arg);
 			int* x = (int*)malloc(sizeof(int)); *x = i;
 			pthread_create(&sessions[i].thread_id, NULL, start_routine, x);
@@ -185,7 +178,6 @@ int process_unmount(int session_id){
 	arg->op_code = TFS_OP_CODE_UNMOUNT;
 
 	/* Check if works */
-	printf("[Main] Calling pc_buffer_insert while unmounting session %d\n", session_id);
 	pc_buffer_insert(session_id, arg);
 	pthread_cond_signal(&sessions[session_id].cond_var);
 
@@ -218,7 +210,6 @@ int process_open(int fserv, int session_id){
 	if(rd <= 0)
 		return -1;
 
-	printf("[Main] Calling pc_buffer_insert while opening session %d\n", session_id);
 	pc_buffer_insert(session_id, arg);
 	pthread_cond_signal(&sessions[session_id].cond_var);
 
@@ -242,7 +233,6 @@ int process_close(int fserv, int session_id){
 	if(rd <= 0)
 		return -1;
 
-	printf("[Main] Calling pc_buffer_insert while closing session %d\n", session_id);
 	pc_buffer_insert(session_id, arg);
 	pthread_cond_signal(&sessions[session_id].cond_var);
 
@@ -276,7 +266,6 @@ int process_write(int fserv, int session_id){
 	if(rd <= 0)
 		return -1;
 
-	printf("[Main] Calling pc_buffer_insert while writing session %d\n", session_id);
 	pc_buffer_insert(session_id, arg);
 	pthread_cond_signal(&sessions[session_id].cond_var);
 
@@ -304,7 +293,6 @@ int process_read(int fserv, int session_id){
 	if(rd <= 0)
 		return -1;
 
-	printf("[Main] Calling pc_buffer_insert while reading session %d\n", session_id);
 	pc_buffer_insert(session_id, arg);
 	pthread_cond_signal(&sessions[session_id].cond_var);
 
@@ -318,7 +306,6 @@ int exec_read(int session_id, int fhandle, size_t len){
 
 	if(write(sessions[session_id].file_desc, &ret, sizeof(int)) == -1)
 		return -1;
-	printf("[Worker%d] exec_read read \"%s\" with size %d.\n", session_id, buf, ret);
 
 	if(write(sessions[session_id].file_desc, buf, (size_t)ret) == -1){
 		return -1;
@@ -331,7 +318,6 @@ int process_shutdown_aac(int session_id){
 	Shutdown_aac_args* arg = (Shutdown_aac_args*) malloc(sizeof(Shutdown_aac_args));
 	arg->op_code = TFS_OP_CODE_SHUTDOWN_AFTER_ALL_CLOSED;
 
-	printf("[Main] Calling pc_buffer_insert while killing session %d\n", session_id);
 	pc_buffer_insert(session_id, arg);
 	pthread_cond_signal(&sessions[session_id].cond_var);
 
@@ -341,86 +327,107 @@ int process_shutdown_aac(int session_id){
 
 int exec_shutdown_aac(int session_id){	
 	int ret = tfs_destroy_after_all_closed();
-	if(ret == 0)
-		shutdown = 0;
+	
 	if(write(sessions[session_id].file_desc, &ret, sizeof(int)) == -1)
 		return -1;
+
 	return ret;
 }
 
 /* Returns the value of the funcion requested by the client if successful, 
  * -1 otherwise */
 int process_message(int fserv){
-	printf("[Main] Reading input\n");
-
 	/* get op code */
 	char op_code;
-	/*struct timespec tim, tim2;
-   	tim.tv_sec = 0;
-   	tim.tv_nsec = 100000000L;
-	nanosleep(&tim , &tim2);*/
 	ssize_t rd = read(fserv, &op_code, 1);
-	if(rd == 0){
-		return 1;
-	}else if(rd == -1){
-		return -1;
-		printf("[Main] Ardeu\n");
-	}
-	// TODO: pensar se temos de ver se o pipe foi fechado em todos os reads
+	if(rd == 0)
+		return CLOSED_PIPE;
+	else if(rd == -1)
+		return ERROR;
 
 	if(op_code == TFS_OP_CODE_MOUNT){
-		return process_mount(fserv);
+		return (process_mount(fserv) == -1 ? ERROR : SUCCESS);
 	}
 	/* else */
+
 	/* get session id */
 	int session_id;
 	rd = read(fserv, &session_id, sizeof(int));
-	if(rd <= 0)
-		return -1;
-	printf("[Main] Read op_code %d from session %d.\n", op_code, session_id);
+	if(rd <= 0 || !valid_session_id(session_id))
+		return ERROR;
 
 	switch(op_code){
 		case TFS_OP_CODE_UNMOUNT:
-			return process_unmount(session_id);
+			return (process_unmount(session_id) == -1 ? ERROR : SUCCESS);
 			break;
 
 		case TFS_OP_CODE_OPEN:
-			return process_open(fserv, session_id);
+			return (process_open(fserv, session_id) == -1 ? ERROR : SUCCESS);
 			break;
 
 		case TFS_OP_CODE_CLOSE:
-			return process_close(fserv, session_id);
+			return (process_close(fserv, session_id) == -1 ? ERROR : SUCCESS);
 			break;
 
 		case TFS_OP_CODE_WRITE:
-			return process_write(fserv, session_id);
+			return (process_write(fserv, session_id) == -1 ? ERROR : SUCCESS);
 			break;
 		
 		case TFS_OP_CODE_READ:
-			return process_read(fserv, session_id);
+			return (process_read(fserv, session_id) == -1 ? ERROR : SUCCESS);
 			break;
 		
 		case TFS_OP_CODE_SHUTDOWN_AFTER_ALL_CLOSED:
-			return process_shutdown_aac(session_id);
+			return (process_shutdown_aac(session_id) == -1 ? ERROR : SHUTDOWN);
 			break;
 
 		default:
 	}
 
-	return -1;
+	return ERROR;
 }
 
-void sessions_init(){
+int server_init(char* pipename){
 	for(int i=0; i<S; i++){
 		sessions[i].pc_buffer.cons_ind = 0;
 		sessions[i].pc_buffer.prod_ind = 0;
-		for(int k=0; k<PC_BUF_SIZE; k++){
-			sessions[i].pc_buffer.args[k] = NULL;
-		}
 		pthread_mutex_init(&sessions[i].lock, NULL);
 		pthread_cond_init(&sessions[i].cond_var, NULL);
 		pthread_mutex_init(&sessions[i].lock, NULL);
 	}
+	pthread_mutex_init(&sessions_lock, NULL);
+
+	if(tfs_init() == -1)
+		return -1;
+
+	/* Creating server pipe and opening for read */
+	unlink(pipename);
+	if(mkfifo(pipename, 0777) < 0)
+		return -1;
+
+	int fserv = open(pipename, O_RDONLY);
+	if(fserv < 0)
+		return -1;
+	
+	return fserv;
+}
+
+int server_destroy(char* pipename, int fserv){
+	if(close(fserv) != 0) 
+		return -1;
+
+	/* Destruction process */
+	if(unlink(pipename) == -1)
+		return -1;
+
+	for(int i=0; i<S; i++){
+		pthread_mutex_destroy(&sessions[i].lock);
+		pthread_cond_destroy(&sessions[i].cond_var);
+		pthread_mutex_destroy(&sessions[i].lock);
+	}
+	pthread_mutex_destroy(&sessions_lock);
+
+	return 0;
 }
 
 int main(int argc, char **argv) {
@@ -432,31 +439,15 @@ int main(int argc, char **argv) {
     char *pipename = argv[1];
     printf("Starting TecnicoFS server with pipe called %s\n", pipename);
 
-	/* creating server pipe and opening for read */
-	unlink(pipename);
-	if(mkfifo(pipename, 0777) < 0)
-		exit(1);
+	int fserv = server_init(pipename);
 
-	int fserv = open(pipename, O_RDONLY);
-	if(fserv < 0) exit(1);
-	
-	sessions_init();
-	if(tfs_init() == -1)
-		return -1;
-	shutdown = false;
-
-	while(!shutdown){
-		if(process_message(fserv) == 1) {
-			printf("RESETTING THE PIPE!\n");
+	int x = SUCCESS;
+	while(x != SHUTDOWN){
+		x = process_message(fserv);
+		if(x == CLOSED_PIPE){
 			open(pipename, O_RDONLY);
 		}
 	}
 
-	if(close(fserv) != 0) 
-		return -1;
-
-	/* Destruction process */
-	if(unlink(pipename) == -1)
-		return -1;
-    return 0;
+    return server_destroy(pipename, fserv);
 }

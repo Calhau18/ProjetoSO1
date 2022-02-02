@@ -15,6 +15,13 @@
 #define S 20
 #define PC_BUF_SIZE 5
 
+enum {
+	SHUTDOWN = -2,
+	ERROR = -1,
+	SUCCESS = 0,
+	CLOSED_PIPE = 1
+};
+
 /* Operation_args struct definitions */
 
 typedef struct mount_args {
