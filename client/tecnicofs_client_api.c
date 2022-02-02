@@ -9,6 +9,12 @@
 // TODO remove
 #include <stdio.h>
 
+/* client session data */
+static int session_id = -1;
+static char c_pipe_path[PIPE_NAME_LENGTH];
+static char s_pipe_path[PIPE_NAME_LENGTH];
+static int fserv, fcli;
+
 int destroy_session(){
     if (close(fserv) != 0) return -1;
 	if (close(fcli) != 0) return -1;
