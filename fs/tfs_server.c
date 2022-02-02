@@ -11,48 +11,46 @@ bool pc_buffer_is_empty(PC_buffer_t * pc_buf){
 }
 
 void pc_buffer_insert(int session_id, void * arg){
-	pthread_mutex_lock(&sessions[session_id].pc_buf_lock);
+	pthread_mutex_lock(&sessions[session_id].lock);
+
 	PC_buffer_t * pc_buf = &(sessions[session_id].pc_buffer);
 	if(pc_buf == NULL) {
 		printf("pc_buf is NULL\n"); 
+		pthread_mutex_unlock(&sessions[session_id].lock);
 		return;
 	}
-	
-	/*
-	printf("[Main] Inserting in PC buffer associated with session %d.\n", session_id);
-	printf_pc_buf(pc_buf);
-	*/
 
 	if(!pc_buffer_is_full(pc_buf)){
 		pc_buf->args[pc_buf->prod_ind] = arg;
 		pc_buf->prod_ind = (pc_buf->prod_ind + 1) % PC_BUF_SIZE;
-		pthread_mutex_unlock(&sessions[session_id].pc_buf_lock);
+		
+		pthread_mutex_unlock(&sessions[session_id].lock);
 		return;
 	}
-	pthread_mutex_unlock(&sessions[session_id].pc_buf_lock);
+
+	pthread_mutex_unlock(&sessions[session_id].lock);
 	printf("[Main] !!! Cannot insert in PC_buffer associated with session %d\n", session_id);
 }
 
 void * pc_buffer_remove(int session_id){
-	pthread_mutex_lock(&sessions[session_id].pc_buf_lock);
-	PC_buffer_t * pc_buf = &(sessions[session_id].pc_buffer);
-	if(pc_buf == NULL)
-		return NULL;
-	
-	/*
-	printf("[Worker%d] Removing from PC buffer.\n", session_id);
-	printf_pc_buf(pc_buf);
-	*/
+	pthread_mutex_lock(&sessions[session_id].lock);
 
-	if(pc_buf->cons_ind != pc_buf->prod_ind){
+	PC_buffer_t * pc_buf = &(sessions[session_id].pc_buffer);
+	if(pc_buf == NULL){
+		pthread_mutex_unlock(&sessions[session_id].lock);
+		return NULL;
+	}
+
+	if(!pc_buffer_is_empty(pc_buf)){
 		void * ret = pc_buf->args[pc_buf->cons_ind];
 		pc_buf->args[pc_buf->cons_ind] = NULL;
 		pc_buf->cons_ind = (pc_buf->cons_ind + 1) % PC_BUF_SIZE;
-		pthread_mutex_unlock(&sessions[session_id].pc_buf_lock);
+		
+		pthread_mutex_unlock(&sessions[session_id].lock);
 		return ret;
 	}
 
-	pthread_mutex_unlock(&sessions[session_id].pc_buf_lock);
+	pthread_mutex_unlock(&sessions[session_id].lock);
 	printf("[Worker%d] !!! Cannot remove from PC_buffer.\n", session_id);
 	return NULL;
 }
@@ -67,13 +65,9 @@ void * start_routine(void * args){
 		return NULL;
 	}
 
-	// TODO: podemos remover lock nos pc_buffers?
-	pthread_mutex_lock(&sessions[session_id].lock);
-
 	while(!ex){
 		void * arg = pc_buffer_remove(session_id);
 		if(arg == NULL){ 
-			pthread_mutex_unlock(&sessions[session_id].lock);
 			return NULL;
 			printf("Removed NULL from PC_buffer\n");
 		}
@@ -90,6 +84,7 @@ void * start_routine(void * args){
 
 			case TFS_OP_CODE_UNMOUNT:
 				exec_unmount(session_id);
+				free((Unmount_args*) arg);
 				ex = true;
 				break;
 
@@ -120,24 +115,23 @@ void * start_routine(void * args){
 
 			case TFS_OP_CODE_SHUTDOWN_AFTER_ALL_CLOSED:
 				exec_shutdown_aac(session_id);
+				free((Shutdown_aac_args*) arg);
 				break;
 
 			default:
 				printf("Did not read a legitimate op_code\n");
-				pthread_mutex_unlock(&sessions[session_id].lock);
 				return NULL;
 		}
 
-		pthread_mutex_lock(&sessions[session_id].pc_buf_lock);
+		pthread_mutex_lock(&sessions[session_id].lock);
 		while(pc_buffer_is_empty(&sessions[session_id].pc_buffer) && !ex){
 			printf("[Worker%d] Waiting for activity.\n", session_id);
-			pthread_cond_wait(&sessions[session_id].cond_var, &sessions[session_id].pc_buf_lock);
+			pthread_cond_wait(&sessions[session_id].cond_var, &sessions[session_id].lock);
 		}
-		pthread_mutex_unlock(&sessions[session_id].pc_buf_lock);
+		pthread_mutex_unlock(&sessions[session_id].lock);
 	}
 
 	printf("[Worker%d] Exiting start_routine.\n", session_id);
-	pthread_mutex_unlock(&sessions[session_id].lock);
 	return NULL;
 }
 
@@ -425,7 +419,7 @@ void sessions_init(){
 		}
 		pthread_mutex_init(&sessions[i].lock, NULL);
 		pthread_cond_init(&sessions[i].cond_var, NULL);
-		pthread_mutex_init(&sessions[i].pc_buf_lock, NULL); // sessions[i].pc_buf_lock
+		pthread_mutex_init(&sessions[i].lock, NULL);
 	}
 }
 

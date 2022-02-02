@@ -62,11 +62,10 @@ typedef struct pc_buffer_t {
 
 typedef struct session {
 	int file_desc;
-	PC_buffer_t pc_buffer;
 	pthread_t thread_id;
-	pthread_cond_t cond_var;
+	PC_buffer_t pc_buffer;
 	pthread_mutex_t lock;
-	pthread_mutex_t pc_buf_lock;
+	pthread_cond_t cond_var;
 } Session;
 
 Session sessions[S];
