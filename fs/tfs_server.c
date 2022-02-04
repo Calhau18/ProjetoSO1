@@ -182,13 +182,19 @@ int process_unmount(int session_id){
 
 int exec_unmount(int session_id){
 	int ret = 0;
-	if(write(sessions[session_id].file_desc, &ret, sizeof(int)) == -1)
+	pthread_mutex_lock(&sessions_lock);
+	if(write(sessions[session_id].file_desc, &ret, sizeof(int)) == -1){
+		pthread_mutex_unlock(&sessions_lock);
 		return -1;
+	}
 
-	if(close(sessions[session_id].file_desc) == -1)
+	if(close(sessions[session_id].file_desc) == -1){
+		pthread_mutex_unlock(&sessions_lock);
 		return -1;
+	}
 
 	sessions[session_id].file_desc = 0;
+	pthread_mutex_unlock(&sessions_lock);
 	pthread_exit(&ret);
 }
 
