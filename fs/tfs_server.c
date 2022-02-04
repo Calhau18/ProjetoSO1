@@ -59,12 +59,10 @@ void * pc_buffer_remove(int session_id){
 
 
 void * start_routine(void * args){
-	bool ex = false;
-
 	int session_id = *((int*) args);
 	free(args);
 
-	while(!ex){
+	while(true){
 		void * arg = pc_buffer_remove(session_id);
 		if(arg == NULL)
 			return NULL;
@@ -80,7 +78,6 @@ void * start_routine(void * args){
 			case TFS_OP_CODE_UNMOUNT:
 				exec_unmount(session_id);
 				free((Unmount_args*) arg);
-				ex = true;
 				break;
 
 			case TFS_OP_CODE_OPEN:
@@ -119,7 +116,7 @@ void * start_routine(void * args){
 
 		/* Wait for new request from client */
 		pthread_mutex_lock(&sessions[session_id].lock);
-		while(pc_buffer_is_empty(&sessions[session_id].pc_buffer) && !ex){
+		while(pc_buffer_is_empty(&sessions[session_id].pc_buffer)){
 			pthread_cond_wait(&sessions[session_id].cond_var, &sessions[session_id].lock);
 		}
 		pthread_mutex_unlock(&sessions[session_id].lock);
@@ -192,8 +189,7 @@ int exec_unmount(int session_id){
 		return -1;
 
 	sessions[session_id].file_desc = 0;
-
-	return ret;
+	pthread_exit(&ret);
 }
 
 /* Returns the value of tfs_open on success, -1 otherwise */
@@ -330,8 +326,6 @@ int exec_shutdown_aac(int session_id){
 	if(write(sessions[session_id].file_desc, &ret, sizeof(int)) == -1)
 		return -1;
 	exit(0);
-
-	return ret;
 }
 
 /* Returns the value of the funcion requested by the client if successful, 
@@ -389,11 +383,11 @@ int process_message(int fserv){
 
 int server_init(char* pipename){
 	for(int i=0; i<S; i++){
+		sessions[i].file_desc = 0;
 		sessions[i].pc_buffer.cons_ind = 0;
 		sessions[i].pc_buffer.prod_ind = 0;
 		pthread_mutex_init(&sessions[i].lock, NULL);
 		pthread_cond_init(&sessions[i].cond_var, NULL);
-		pthread_mutex_init(&sessions[i].lock, NULL);
 	}
 	pthread_mutex_init(&sessions_lock, NULL);
 

@@ -6,9 +6,7 @@
 #include <string.h>
 #include <limits.h>
 #include <errno.h>
-// TODO remove
 #include <signal.h>
-#include <stdio.h>
 
 /* client session data */
 static int session_id = -1;
