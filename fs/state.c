@@ -436,8 +436,8 @@ int add_to_open_file_table(int inumber, size_t offset) {
 			pthread_mutex_unlock(&file_table_lock);
             return i;
         }
-		pthread_mutex_unlock(&file_table_lock);
     }
+	pthread_mutex_unlock(&file_table_lock);
     return -1;
 }
 

@@ -7,6 +7,7 @@
 #include <limits.h>
 #include <errno.h>
 // TODO remove
+#include <signal.h>
 #include <stdio.h>
 
 /* client session data */
@@ -25,7 +26,14 @@ int destroy_session(){
 	return 0;
 }
 
+static void handler(int signum) {
+	if (signum == SIGPIPE) {
+		destroy_session();
+	}
+}
+
 int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
+	signal(SIGPIPE, handler);
 	/* create client pipe */
 	unlink(client_pipe_path);
     if (mkfifo(client_pipe_path, 0777) < 0) return -1;
@@ -49,8 +57,7 @@ int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
 	memset(buf+1+size, '\0', PIPE_NAME_LENGTH-size);
     if(write(fserv, buf, 1+PIPE_NAME_LENGTH) == -1)
 		return -1;
-	if(errno == EPIPE)
-		return destroy_session();
+
 	/* Request sent */
 
 	/* Receive answer from server */
@@ -66,6 +73,7 @@ int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
 }
 
 int tfs_unmount() {
+	signal(SIGPIPE, handler);
 	/* Send request to server */
     char opcode = TFS_OP_CODE_UNMOUNT;
 	char buf[1+sizeof(int)];
@@ -76,8 +84,6 @@ int tfs_unmount() {
 
     if(write(fserv, buf, sizeof(buf)) == -1)
 		return -1;
-	if(errno == EPIPE)
-		return destroy_session();
 	/* Request sent */
 
 	int ret;
@@ -88,6 +94,7 @@ int tfs_unmount() {
 }
 
 int tfs_open(char const *name, int flags) {
+	signal(SIGPIPE, handler);
 	ssize_t written = -1;
 	/* Send request to server */
 	char buf[1+sizeof(int)+FILE_NAME_LENGTH+sizeof(int)];
@@ -106,8 +113,6 @@ int tfs_open(char const *name, int flags) {
 	written = write(fserv, buf, sizeof(buf));
     if(written == -1)
 		return -1;
-	if(errno == EPIPE)
-		return destroy_session();
 
 	/* Request sent */
 
@@ -121,6 +126,7 @@ int tfs_open(char const *name, int flags) {
 }
 
 int tfs_close(int fhandle) {
+	signal(SIGPIPE, handler);
 	ssize_t written = -1;
 	/* Send request to server */
 	char buf[1+2*sizeof(int)];
@@ -135,8 +141,7 @@ int tfs_close(int fhandle) {
 	written = write(fserv, buf, sizeof(buf));
     if(written == -1)
 		return -1;
-	if(errno == EPIPE)
-		return destroy_session();
+
 	/* Request sent */
 
 	/* Receive answer from server */
@@ -149,6 +154,7 @@ int tfs_close(int fhandle) {
 }
 
 ssize_t tfs_write(int fhandle, void const *buffer, size_t len) {
+	signal(SIGPIPE, handler);
 	/* Send request to server */
 	char buf[1+2*sizeof(int)+sizeof(size_t)+len];
 	if(sizeof(buf) >= PIPE_BUF)
@@ -167,8 +173,6 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t len) {
 
 	if(write(fserv, buf, sizeof(buf)) == -1)
 		return -1;
-	if(errno == EPIPE)
-		return destroy_session();
 
 	/* Request sent */
 
@@ -182,6 +186,7 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t len) {
 }
 
 ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
+	signal(SIGPIPE, handler);
 	/* Send request to server */
 	char buf[1+2*sizeof(int)+sizeof(size_t)];
 	if(sizeof(buf) >= PIPE_BUF)
@@ -198,8 +203,6 @@ ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
 
     if(write(fserv, buf, sizeof(buf)) == -1)
 		return -1;
-	if(errno == EPIPE)
-		return destroy_session();
 
 	/* Request sent */
 
@@ -216,6 +219,7 @@ ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
 }
 
 int tfs_shutdown_after_all_closed() {
+	signal(SIGPIPE, handler);
 	/* Send request to server */
     char buf[1+sizeof(int)];
 	if(sizeof(buf) >= PIPE_BUF)
@@ -227,8 +231,7 @@ int tfs_shutdown_after_all_closed() {
 
     if(write(fserv, buf, sizeof(buf)) == -1)
 		return -1;
-	if(errno == EPIPE)
-		return destroy_session();
+
 	/* Request sent */
 	if (close(fserv) != 0) return -1;
 

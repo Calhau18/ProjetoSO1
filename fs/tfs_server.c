@@ -329,6 +329,7 @@ int exec_shutdown_aac(int session_id){
 	
 	if(write(sessions[session_id].file_desc, &ret, sizeof(int)) == -1)
 		return -1;
+	exit(0);
 
 	return ret;
 }
@@ -411,24 +412,6 @@ int server_init(char* pipename){
 	return fserv;
 }
 
-int server_destroy(char* pipename, int fserv){
-	if(close(fserv) != 0) 
-		return -1;
-
-	/* Destruction process */
-	if(unlink(pipename) == -1)
-		return -1;
-
-	for(int i=0; i<S; i++){
-		pthread_mutex_destroy(&sessions[i].lock);
-		pthread_cond_destroy(&sessions[i].cond_var);
-		pthread_mutex_destroy(&sessions[i].lock);
-	}
-	pthread_mutex_destroy(&sessions_lock);
-
-	return 0;
-}
-
 int main(int argc, char **argv) {
     if (argc < 2) {
         printf("Please specify the pathname of the server's pipe.\n");
@@ -441,12 +424,12 @@ int main(int argc, char **argv) {
 	int fserv = server_init(pipename);
 
 	int x = SUCCESS;
-	while(x != SHUTDOWN){
+	while(true){
 		x = process_message(fserv);
 		if(x == CLOSED_PIPE){
 			open(pipename, O_RDONLY);
 		}
 	}
 
-    return server_destroy(pipename, fserv);
+    return -1;
 }
